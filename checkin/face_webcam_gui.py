@@ -19,15 +19,16 @@ MAPPING_PATH       = os.path.join(FACE_DATA_DIR, "image_paths.json")
 EMBEDDING_DIM  = 512
 SIM_THRESHOLD  = 0.5
 
-CAPTURE_ROOT = "captured_faces"
-KNOWN_DIR    = os.path.join(CAPTURE_ROOT, "known")
-UNKNOWN_DIR  = os.path.join(CAPTURE_ROOT, "unknown")
-UNKNOWN_VIDEO_DIR = os.path.join(CAPTURE_ROOT, "unknown")
+CAPTURE_ROOT      = "captured_faces"
+KNOWN_DIR         = os.path.join(CAPTURE_ROOT, "known")
+UNKNOWN_DIR       = os.path.join(CAPTURE_ROOT, "unknown")
+KNOWN_VIDEO_DIR   = os.path.join(CAPTURE_ROOT, "known")    
+UNKNOWN_VIDEO_DIR = os.path.join(CAPTURE_ROOT, "unknown")  
 
-MIN_BBOX_AREA = 30000
-FACE_CROP_PADDING = 20   
+MIN_BBOX_AREA     = 30000
+FACE_CROP_PADDING = 20
 
-RTSP_URL = "rtsp://admin:Ancovn1234@192.168.1.64:554/Streaming/Channels/201/video"
+RTSP_URL    = "rtsp://admin:Ancovn1234@192.168.1.64:554/Streaming/Channels/201/video"
 WINDOW_NAME = "Face Recognition Realtime"
 
 DETECT_WIDTH  = 1080
@@ -37,10 +38,9 @@ VIDEO_FPS    = 15
 VIDEO_FOURCC = "mp4v"
 # ==================================================
 
-os.makedirs(FACE_DATA_DIR,      exist_ok=True)
-os.makedirs(KNOWN_DIR,          exist_ok=True)
-os.makedirs(UNKNOWN_DIR,        exist_ok=True)
-os.makedirs(UNKNOWN_VIDEO_DIR,  exist_ok=True)
+os.makedirs(FACE_DATA_DIR,    exist_ok=True)
+os.makedirs(KNOWN_DIR,        exist_ok=True)
+os.makedirs(UNKNOWN_DIR,      exist_ok=True)
 
 
 # ===================== Chọn nguồn video =====================
@@ -59,8 +59,8 @@ def use_rtsp():
 window = tk.Tk()
 window.title("Chọn nguồn video")
 tk.Label(window, text="Face Recognition", font=("Arial", 13)).pack(pady=10)
-tk.Button(window, text="📷 Webcam",       width=30, command=use_webcam).pack(pady=5)
-tk.Button(window, text="📡 RTSP Camera",  width=30, command=use_rtsp).pack(pady=10)
+tk.Button(window, text="📷 Webcam",      width=30, command=use_webcam).pack(pady=5)
+tk.Button(window, text="📡 RTSP Camera", width=30, command=use_rtsp).pack(pady=10)
 window.mainloop()
 
 if video_source is None:
@@ -74,8 +74,8 @@ face_app    = None
 
 tracker         = Tracker()
 trackid_to_name = {}
-trackid_saved_known   = set()
-trackid_saved_unknown = set()
+trackid_saved_known   = set()   
+trackid_saved_unknown = set()  
 
 annoy_ready = threading.Event()
 model_ready = threading.Event()
@@ -90,6 +90,7 @@ running = threading.Event()
 running.set()
 
 
+# ===================== SAVE WORKER (ảnh thumbnail) =====================
 def save_worker():
     while True:
         frame, path = save_queue.get()
@@ -99,44 +100,66 @@ def save_worker():
 threading.Thread(target=save_worker, daemon=True).start()
 
 
+# ===================== VIDEO WRITE WORKER =====================
 def video_write_worker():
-    writers   = {}   
-    vid_paths = {}  
+    writers   = {}
+    vid_paths = {}
 
     fourcc = cv2.VideoWriter_fourcc(*VIDEO_FOURCC)
 
+    def _open_writer(track_id, frame, path):
+        h, w = frame.shape[:2]
+        writers[track_id]   = cv2.VideoWriter(path, fourcc, VIDEO_FPS, (w, h))
+        vid_paths[track_id] = path
+
     while True:
         try:
-            track_id, frame = video_write_queue.get(timeout=0.1)
+            track_id, frame, label = video_write_queue.get(timeout=0.1)
         except queue.Empty:
             continue
 
-        if track_id == "__STOP__":
+        if label == "__stop__":
             for tid, w in writers.items():
                 w.release()
-                print(f"[VideoWriter] Đóng (giữ file) Unknown_ID{tid}")
+                print(f"[VideoWriter] Đóng (giữ file) ID{tid}: {vid_paths.get(tid,'')}")
             writers.clear()
             vid_paths.clear()
             video_write_queue.task_done()
             break
 
-        if frame is None:
+        if label.startswith("__promote__:"):
+            name = label.split(":", 1)[1]
             if track_id in writers:
                 writers[track_id].release()
                 del writers[track_id]
-                path = vid_paths.pop(track_id, None)
-                if path and os.path.exists(path):
-                    os.remove(path)
-                    print(f"[VideoWriter] Xoá video unknown (đã nhận ra) ID{track_id}: {path}")
+
+            old_path = vid_paths.pop(track_id, None)
+            if old_path and os.path.exists(old_path):
+                new_path = os.path.join(KNOWN_VIDEO_DIR, f"{name}_ID{track_id}.mp4")
+                os.rename(old_path, new_path)
+                print(f"[VideoWriter] Promote ID{track_id}: {old_path} → {new_path}")
+                vid_paths[track_id] = new_path
+            video_write_queue.task_done()
+            continue
+
+        # ── Frame bình thường ──
+        if frame is None:
             video_write_queue.task_done()
             continue
 
         if track_id not in writers:
-            h, w = frame.shape[:2]
-            path = os.path.join(UNKNOWN_VIDEO_DIR, f"Unknown_ID{track_id}.mp4")
-            writers[track_id]   = cv2.VideoWriter(path, fourcc, VIDEO_FPS, (w, h))
-            vid_paths[track_id] = path
-            print(f"[VideoWriter] Bắt đầu ghi video Unknown_ID{track_id}")
+            if label.startswith("known:"):
+                name     = label.split(":", 1)[1]
+                out_path = os.path.join(KNOWN_VIDEO_DIR,   f"{name}_ID{track_id}.mp4")
+            else:  
+                out_path = os.path.join(UNKNOWN_VIDEO_DIR, f"Unknown_ID{track_id}.mp4")
+
+            existing = vid_paths.get(track_id)
+            if existing and os.path.exists(existing):
+                out_path = existing
+
+            _open_writer(track_id, frame, out_path)
+            print(f"[VideoWriter] Bắt đầu ghi ID{track_id}: {out_path}")
 
         writers[track_id].write(frame)
         video_write_queue.task_done()
@@ -228,7 +251,6 @@ def capture_frames():
 
 # ===================== CROP FACE HELPER =====================
 def crop_face(frame, x1, y1, x2, y2, padding=FACE_CROP_PADDING):
-    """Crop khuôn mặt từ frame với padding, đảm bảo không vượt biên."""
     h, w = frame.shape[:2]
     cx1 = max(0, x1 - padding)
     cy1 = max(0, y1 - padding)
@@ -241,7 +263,8 @@ def crop_face(frame, x1, y1, x2, y2, padding=FACE_CROP_PADDING):
 def process_frames():
     global trackid_to_name, trackid_saved_known, trackid_saved_unknown
 
-    recording_ids = set()
+    # track_id → nhãn hiện tại đang ghi video ("unknown" hoặc "known:{name}")
+    recording_label: dict[int, str] = {}
 
     try:
         while running.is_set():
@@ -275,7 +298,7 @@ def process_frames():
 
                 best_id, best_dist = None, float("inf")
                 for x1, y1, x2, y2, tid, _ in tracks:
-                    d = ((rcx - (x1+x2)/2)**2 + (rcy - (y1+y2)/2)**2) ** 0.5
+                    d = ((rcx - (x1 + x2) / 2) ** 2 + (rcy - (y1 + y2) / 2) ** 2) ** 0.5
                     if d < best_dist:
                         best_dist = d
                         best_id   = tid
@@ -305,38 +328,44 @@ def process_frames():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2
                 )
 
-                # ── Crop khuôn mặt (không vẽ bbox lên ảnh lưu) ──
                 face_crop = crop_face(frame, x1, y1, x2, y2)
 
+                # ── Xử lý known ──
                 if name != "Unknown":
-                    unknown_path = os.path.join(UNKNOWN_DIR, f"Unknown_ID{track_id}.jpg")
-                    if os.path.exists(unknown_path):
-                        os.remove(unknown_path)
-                        print(f"Xoá thumbnail unknown {unknown_path}")
-
                     if track_id not in trackid_saved_known:
+                        unknown_thumb = os.path.join(UNKNOWN_DIR, f"Unknown_ID{track_id}.jpg")
+                        if os.path.exists(unknown_thumb):
+                            os.remove(unknown_thumb)
+                            print(f"Xoá thumbnail unknown {unknown_thumb}")
+
                         path = os.path.join(KNOWN_DIR, f"{name}_ID{track_id}.jpg")
                         save_queue.put((face_crop, path))
                         trackid_saved_known.add(track_id)
                         print(f"Lưu ảnh khuôn mặt {name}_ID{track_id}.jpg")
 
-                    if track_id in recording_ids:
-                        video_write_queue.put((track_id, None))
-                        recording_ids.discard(track_id)
+                    current_label = recording_label.get(track_id, "")
+                    new_label     = f"known:{name}"
+                    if current_label != new_label:
+                        if current_label == "unknown":
+                            video_write_queue.put((track_id, None, f"__promote__:{name}"))
+                            print(f"[Process] Promote video ID{track_id} → {name}")
+                        recording_label[track_id] = new_label
+
 
                 else:
-                    if track_id not in trackid_saved_known:
-                        if track_id not in trackid_saved_unknown:
-                            path = os.path.join(UNKNOWN_DIR, f"Unknown_ID{track_id}.jpg")
-                            save_queue.put((face_crop, path))
-                            trackid_saved_unknown.add(track_id)
-                            print(f"Lưu ảnh khuôn mặt Unknown_ID{track_id}.jpg")
+                    if track_id not in trackid_saved_known and track_id not in trackid_saved_unknown:
+                        path = os.path.join(UNKNOWN_DIR, f"Unknown_ID{track_id}.jpg")
+                        save_queue.put((face_crop, path))
+                        trackid_saved_unknown.add(track_id)
+                        print(f"Lưu ảnh khuôn mặt Unknown_ID{track_id}.jpg")
+
+                    if track_id not in recording_label:
+                        recording_label[track_id] = "unknown"
 
             for x1, y1, x2, y2, track_id, _ in tracks:
-                if (track_id in trackid_saved_unknown
-                        and track_id not in trackid_saved_known):
-                    video_write_queue.put((track_id, annotated.copy()))
-                    recording_ids.add(track_id)
+                lbl = recording_label.get(track_id)
+                if lbl is not None:
+                    video_write_queue.put((track_id, annotated.copy(), lbl))
 
             if result_queue.full():
                 try:
@@ -385,6 +414,7 @@ for t in threads:
     t.start()
 
 print("🚀 Đang chạy Face Recognition (nhấn 'q' để thoát)")
+print(f"📹 Video known   lưu tại: {KNOWN_VIDEO_DIR}")
 print(f"📹 Video unknown lưu tại: {UNKNOWN_VIDEO_DIR}")
 
 try:
@@ -397,7 +427,7 @@ finally:
     for t in threads:
         t.join(timeout=3.0)
 
-    video_write_queue.put(("__STOP__", None))
+    video_write_queue.put(("__STOP__", None, "__stop__"))
     video_write_queue.join()
 
     for q in (frame_queue, result_queue):
