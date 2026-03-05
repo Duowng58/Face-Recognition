@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 
 from bson import ObjectId
 import cv2
+from matplotlib.animation import writers
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -52,7 +53,8 @@ CAPTURE_ROOT = "captured_faces"
 KNOWN_DIR = os.path.join(CAPTURE_ROOT, "known")
 CHECKIN_DIR = os.path.join(CAPTURE_ROOT, "checkin")
 UNKNOWN_DIR = os.path.join(CAPTURE_ROOT, "unknown")
-
+VIDEO_FPS    = 15
+VIDEO_FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
 DEFAULT_RTSP_URL = "rtsp://admin:Ancovn1234@192.168.1.64:554/Streaming/Channels/201/video"
 FONT_PATH = os.path.join(ROOT_DIR, "app", "fonts", "Arial.ttf")
 
@@ -122,6 +124,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self._trackid_to_name = {}
         
         self._save_queue = queue.Queue()
+        self._video_write_queue = queue.Queue()
 
         os.makedirs(CHECKIN_DIR, exist_ok=True)
 
@@ -163,6 +166,13 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             if len(tracker["frames"]) > 0:
                 for index, (area, frame_count, frame) in enumerate(tracker["frames"]):
                     self._save_queue.put((frame, os.path.join(now_path, "frames", f"frame_{index}.jpg")))
+                    
+            if tracker["video_writers"] is not None:
+                tracker["video_writers"].release()
+                old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
+                new_path = os.path.join(CHECKIN_DIR, time.strftime("%Y-%m-%d"), str(attendance_id), f"video.mp4")
+                os.makedirs(os.path.dirname(new_path), exist_ok=True)
+                os.rename(old_path, new_path)
         
         if tracker.get("name") == "Unknown":
             if tracker.get("frame") is None:
@@ -190,6 +200,11 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         else:
             if tracker["attendance_id"] is not None:
                 save_frames(tracker["attendance_id"])
+            else:
+                if tracker["video_writers"] is not None:
+                    tracker["video_writers"].release()
+                    old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
+                    os.remove(old_path)
 
                     
         self._trackid_to_name.pop(track_id, None)
@@ -555,6 +570,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         
         self._timer.start()
         
+
     def detect_worker(self):
         global detect_frame_count,trackid_saved_known
         trackid_saved_known = set()
@@ -613,15 +629,18 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 if matched_embedding is None:
                     continue
                 if  self._trackid_to_name.get(track_id) is None:
+                    h, w = frame.shape[:2]
                     self._trackid_to_name[track_id] = {
                         "name": "Unknown",
                         "score": 0.0,
                         "student": None,
                         "frames": [],
                         "frame": None,
-                        "attendance_id": None
+                        "attendance_id": None,
+                        "video_writers": cv2.VideoWriter(os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4"), VIDEO_FOURCC, VIDEO_FPS, (w, h))
                     }
                 tracker = self._trackid_to_name.get(track_id)
+                
                 
                     # print(2)
                 name, score = self._recognize(matched_embedding)
@@ -641,6 +660,11 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 label = f"ID:{track_id} {name} {score:.2f}" \
                     if name != "Unknown" else f"ID:{track_id} Unknown"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                
+                frame_tracker = frame_copy.copy()
+                cv2.rectangle(frame_tracker, (x1, y1), (x2, y2), color, 2)
+                
+                tracker["video_writers"].write(frame_tracker)
 
                 if name != "Unknown":
                     if track_id not in trackid_saved_known:
