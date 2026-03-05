@@ -1,5 +1,6 @@
 import math
 import numpy as np
+from PySide6.QtCore import QObject, Signal
 
 try:
     from scipy.optimize import linear_sum_assignment
@@ -97,10 +98,12 @@ def greedy_match(cost_matrix, threshold):
 
 
 #  TRACKER
-class Tracker:
+class Tracker(QObject):
+    on_disappeared_signal = Signal(int)
     def __init__(
         self,
-        max_disappeared=200,  
+        parent=None,
+        max_disappeared=20,  
         base_dist_thresh=400,
         iou_weight=0.4,
         dist_weight=0.6,
@@ -108,6 +111,7 @@ class Tracker:
         fast_speed_thresh=15.0,
         match_cost_thresh=1.5,
     ):
+        super().__init__(parent)
         self.max_disappeared = max_disappeared
         self.base_dist_thresh = base_dist_thresh
         self.iou_weight = iou_weight
@@ -332,6 +336,7 @@ class Tracker:
             if cnt > self.max_disappeared
         ]
         for tid in to_remove:
+            self.on_disappeared_signal.emit(tid)
             self.disappeared.pop(tid, None)
             self.kalman.pop(tid, None)
             self.id_to_bbox.pop(tid, None)
@@ -345,7 +350,16 @@ class Tracker:
         self.objects_bbs_ids.extend(objects_now)
 
         return objects_now
-
+    
+    def release(self):
+        for obj in self.objects_bbs_ids:
+            obj_id = obj[4]
+            self.on_disappeared_signal.emit(obj_id)
+            self.disappeared.pop(obj_id, None)
+            self.kalman.pop(obj_id, None)
+            self.id_to_bbox.pop(obj_id, None)
+            self.id_to_pred_bbox.pop(obj_id, None)
+            self.id_to_class.pop(obj_id, None)
     # ──────────────────────────────────────────
     @property
     def center_points(self):
