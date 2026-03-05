@@ -13,14 +13,11 @@ from annoy import AnnoyIndex
 OUTPUT_FOLDER = "face_data_1"
 FRAMES_TO_CAPTURE = 15
 SIM_THRESHOLD = 0.5
-# ============================================
 
 # ================== GLOBAL ==================
-source_type = None   # "webcam" | "folder"
+source_type = None   
 user_name = None
 folder_path = None
-# ============================================
-
 
 # ================== GUI ==================
 def choose_folder():
