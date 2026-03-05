@@ -1,7 +1,13 @@
 import math
+import typing
+from PySide6.QtCore import QObject, Signal
 
-class Tracker:
+
+class Tracker(QObject):
+    on_disappeared_signal = Signal(int)
+
     def __init__(self):
+        super().__init__()
         self.center_points = {}
         self.velocities = {}
         self.last_positions = {}
@@ -10,12 +16,13 @@ class Tracker:
 
         # object đã mất tạm thời
         self.disappeared_objects = {}
-        self.max_disappeared_frames = 600
+        self.max_disappeared_frames = 20
 
         self.id_count = 0
         self.counting = {}
         self.countingTotal = {}
-
+        
+        
     # ------------------------------------------------
     def calculate_distance_threshold(self, w, h):
         obj_size = (w + h) / 2
@@ -28,7 +35,17 @@ class Tracker:
             vx, vy = self.velocities[obj_id]
             return (x + vx, y + vy)
         return None
-
+    
+    def release(self):
+        for obj in self.objects_bbs_ids:
+            obj_id = obj[4]
+            self.on_disappeared_signal.emit(obj_id)
+            self.disappeared_objects.pop(obj_id, None)
+            self.center_points.pop(obj_id, None)
+            self.velocities.pop(obj_id, None)
+            self.last_positions.pop(obj_id, None)
+            self.id_to_class.pop(obj_id, None)
+        
     # ------------------------------------------------
     def update(self, objects_rect, classId="face"):
         """
@@ -138,8 +155,10 @@ class Tracker:
             info["frames_missing"] += 1
             if info["frames_missing"] > self.max_disappeared_frames:
                 to_remove.append(obj_id)
+                
 
         for obj_id in to_remove:
+            self.on_disappeared_signal.emit(obj_id)
             self.disappeared_objects.pop(obj_id, None)
             self.center_points.pop(obj_id, None)
             self.velocities.pop(obj_id, None)

@@ -10,7 +10,7 @@ from annoy import AnnoyIndex
 from face_tracker import Tracker
 
 # ===================== CONFIG =====================
-FACE_DATA_DIR = "face_data"
+FACE_DATA_DIR = "face_data_1"
 ANNOY_INDEX_PATH = os.path.join(FACE_DATA_DIR, "face_index.ann")
 MAPPING_PATH = os.path.join(FACE_DATA_DIR, "image_paths.json")
 

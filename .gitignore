@@ -1,2 +1,5 @@
 dist
 build
+/captured_faces
+/face_data_1
+*.pyc
