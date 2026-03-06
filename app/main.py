@@ -630,7 +630,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
 
         if student_id is None:
             # Sử dụng thông tin từ self._attendance_selected làm id cho học sinh mới
-            student = Student(id=self._attendance_selected.id, name=new_name, class_id=new_class_id, images="")
+            student = Student(id=self._attendance_selected.id, name=new_name, class_id=new_class_id)
             student_id = student_repo.insert(student)
             if not os.path.exists(AVATAR_DIR):
                 os.makedirs(AVATAR_DIR)
