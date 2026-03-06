@@ -1,24 +1,20 @@
-from enum import unique
 import json
 import os
 import queue
 import sys
 import threading
 import time
-from dataclasses import dataclass
-from datetime import datetime
 from typing import List, Optional, Tuple
 
 from bson import ObjectId
 import cv2
-from matplotlib.animation import writers
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
 from insightface.app import FaceAnalysis
 from annoy import AnnoyIndex
-
+import subprocess
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +22,29 @@ ROOT_DIR = os.path.normpath(os.path.join(BASE_DIR, ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+from app.config import (
+    ANNOY_INDEX_PATH,
+    AVATAR_DIR,
+    CHECKIN_DIR,
+    DEFAULT_RTMP_URL,
+    DEFAULT_RTSP_URL,
+    EMBEDDING_DIM,
+    FACE_DATA_DIR,
+    FONT_PATH,
+    FRAME_HEIGHT,
+    FRAME_WIDTH,
+    MAPPING_PATH,
+    MIN_BBOX_AREA,
+    SIM_THRESHOLD,
+    TREE,
+    VIDEO_FOURCC,
+    VIDEO_FPS,
+)
 from app.utils.cv2_helper import check_blur_laplacian, cv2_putText_utf8
+from app.utils.image_utils import (
+    get_attendance_frame_path,
+    get_student_avatar_path,
+)
 from app.utils.mongodb_access import (
     Attendance,
     AttendanceRepository,
@@ -38,44 +56,7 @@ from app.utils.mongodb_access import (
     to_local,
 )
 from checkin.face_tracker import Tracker
-from utils.qt_invoker import init_qt_invoker, qt_invoke
-
-
-FACE_DATA_DIR = os.path.normpath(os.path.join(ROOT_DIR, "face_data_1"))
-ANNOY_INDEX_PATH = os.path.join(FACE_DATA_DIR, "face_index.ann")
-MAPPING_PATH = os.path.join(FACE_DATA_DIR, "image_paths.json")
-
-MIN_BBOX_AREA = 10000
-EMBEDDING_DIM = 512
-TREE = 50
-SIM_THRESHOLD = 0.6
-CAPTURE_ROOT = "captured_faces"
-KNOWN_DIR = os.path.join(CAPTURE_ROOT, "known")
-CHECKIN_DIR = os.path.join(CAPTURE_ROOT, "checkin")
-UNKNOWN_DIR = os.path.join(CAPTURE_ROOT, "unknown")
-VIDEO_FPS    = 15
-VIDEO_FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
-DEFAULT_RTSP_URL = "rtsp://admin:Ancovn1234@192.168.1.64:554/Streaming/Channels/201/video"
-FONT_PATH = os.path.join(ROOT_DIR, "app", "fonts", "Arial.ttf")
-
-
-
-def build_placeholder_pixmap(size: QtCore.QSize, label: str) -> QtGui.QPixmap:
-    pixmap = QtGui.QPixmap(size)
-    pixmap.fill(QtGui.QColor("#f3f5f7"))
-
-    painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.Antialiasing)
-
-    rect = QtCore.QRect(0, 0, size.width(), size.height())
-    painter.setPen(QtGui.QPen(QtGui.QColor("#d0d5da"), 2))
-    painter.drawRect(rect.adjusted(10, 10, -10, -10))
-
-   
-
-    painter.end()
-
-    return pixmap
+from app.utils.qt_invoker import init_qt_invoker, qt_invoke
 
 
 class AttendanceWindow(QtWidgets.QMainWindow):
@@ -124,7 +105,14 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self._trackid_to_name = {}
         
         self._save_queue = queue.Queue()
-        self._video_write_queue = queue.Queue()
+        self._livestream_queue = queue.Queue(maxsize=10)
+        self._ffmpeg_process: Optional[subprocess.Popen] = None
+        self._live_stream_thread: Optional[threading.Thread] = None
+        self._streaming_enabled = True
+        
+        self._attendance_selected: Optional[Attendance] = None
+        self._attendance_selected_row: Optional[int] = None
+        self.list_classrooms = []
 
         os.makedirs(CHECKIN_DIR, exist_ok=True)
 
@@ -154,60 +142,79 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         if tracker is None:
             return
         print(f"Track ID: {track_id}")
-        print(f"total frames: {len(tracker["frames"])}, "
-                f"name: {tracker.get("name", "--")}, "
-                f"variance: {tracker.get("variance", 0)}, "
-                f"score: {tracker.get("score", 0)}, "
-                f"student: {tracker.get("student", "--")}")
-        time = now_local()
-        def save_frames(attendance_id):
-            now_path = os.path.join(CHECKIN_DIR, time.strftime("%Y-%m-%d"), str(attendance_id))
-            self._save_queue.put((tracker.get("frame"), os.path.join(now_path, "frame.jpg")))
-            if len(tracker["frames"]) > 0:
-                for index, (area, frame_count, frame) in enumerate(tracker["frames"]):
-                    self._save_queue.put((frame, os.path.join(now_path, "frames", f"frame_{index}.jpg")))
-                    
-            if tracker["video_writers"] is not None:
-                tracker["video_writers"].release()
-                old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
-                new_path = os.path.join(CHECKIN_DIR, time.strftime("%Y-%m-%d"), str(attendance_id), f"video.mp4")
-                os.makedirs(os.path.dirname(new_path), exist_ok=True)
-                os.rename(old_path, new_path)
-        
-        if tracker.get("name") == "Unknown":
-            if tracker.get("frame") is None:
-                return
-            if len(tracker["frames"]) < 10:
-                return
-            print("Process unknown tracker")
-            # Handle unknown tracker
-            attendanceRepo = AttendanceRepository()
-            attendance_unknown_id = ObjectId()
-            # Tạo folder 
-            save_frames(attendance_unknown_id)
-                    
-            
-            attendance_unknown = Attendance(
-                id= attendance_unknown_id,
-                time=time,
-                student_name="Unknown",
-                score=tracker.get("score", 0),
-            )
-            attendanceRepo.insert(attendance_unknown)
-            self.build_unknown_face(tracker,attendance_unknown)
-            
-            qt_invoke(lambda: self._append_history_row(attendance_unknown))
-        else:
-            if tracker["attendance_id"] is not None:
-                save_frames(tracker["attendance_id"])
-            else:
-                if tracker["video_writers"] is not None:
-                    tracker["video_writers"].release()
-                    old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
-                    os.remove(old_path)
+        print(
+            f"total frames: {len(tracker['frames'])}, "
+            f"name: {tracker.get('name', '--')}, "
+            f"variance: {tracker.get('variance', 0)}, "
+            f"score: {tracker.get('score', 0)}, "
+            f"student: {tracker.get('student', '--')}"
+        )
 
-                    
+        tracker_snapshot = {
+            "frames": list(tracker.get("frames", [])),
+            "frame": tracker.get("frame"),
+            "name": tracker.get("name"),
+            "score": tracker.get("score", 0),
+            "attendance_id": tracker.get("attendance_id"),
+            "video_writer": tracker.get("video_writers"),
+        }
         self._trackid_to_name.pop(track_id, None)
+
+        def handle_disappeared() -> None:
+            timestamp = now_local()
+
+            def save_frames(attendance_id):
+                now_path = os.path.join(CHECKIN_DIR, timestamp.strftime("%Y-%m-%d"), str(attendance_id))
+                if tracker_snapshot["frame"] is not None:
+                    self._save_queue.put((tracker_snapshot["frame"], os.path.join(now_path, "frame.jpg")))
+                for index, (_, __, frame) in enumerate(tracker_snapshot["frames"]):
+                    self._save_queue.put((frame, os.path.join(now_path, "frames", f"frame_{index}.jpg")))
+
+                video_writer = tracker_snapshot.get("video_writer")
+                if video_writer is not None:
+                    video_writer.release()
+                    old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
+                    new_path = os.path.join(CHECKIN_DIR, timestamp.strftime("%Y-%m-%d"), str(attendance_id), "video.mp4")
+                    os.makedirs(os.path.dirname(new_path), exist_ok=True)
+                    if os.path.exists(old_path):
+                        os.rename(old_path, new_path)
+
+            if tracker_snapshot.get("name") == "Unknown":
+                if tracker_snapshot.get("frame") is None:
+                    return
+                if len(tracker_snapshot["frames"]) < 10:
+                    return
+                print("Process unknown tracker")
+                attendance_repo = AttendanceRepository()
+                attendance_unknown_id = ObjectId()
+                save_frames(attendance_unknown_id)
+
+                attendance_unknown = Attendance(
+                    id=attendance_unknown_id,
+                    time=timestamp,
+                    student_name="Unknown",
+                    score=tracker_snapshot.get("score", 0),
+                )
+                attendance_repo.insert(attendance_unknown)
+                self.build_unknown_face(tracker_snapshot, attendance_unknown)
+                qt_invoke(lambda: self._append_history_row(attendance_unknown))
+            else:
+                attendance_id = tracker_snapshot.get("attendance_id")
+                if attendance_id is not None:
+                    print("Điểm danh unknown")
+                    save_frames(attendance_id)
+                else:
+                    video_writer = tracker_snapshot.get("video_writer")
+                    if video_writer is not None:
+                        print("Release video writer, Không điểm danh")
+                        video_writer.release()
+                        old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
+                        if os.path.exists(old_path):
+                            os.remove(old_path)
+                    else:
+                        print("Do nothing")
+
+        threading.Thread(target=handle_disappeared, daemon=True).start()
         
     def build_unknown_face(self, tracker: dict, attendance_unknown: Attendance) -> None:
         # Implement the logic to build unknown face
@@ -226,17 +233,39 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         pass
 
     def load_params(self) -> None:
-        client = MongoClientSingleton.get_client()
-        self.list_classrooms = list(client.db["classrooms"].find())
-        print(self.list_classrooms)
+        self._refresh_classrooms()
         
         attendanceRepo = AttendanceRepository()
         list_attendance = attendanceRepo.find({
             "time": {"$gte": start_of_today_local()}
         })
+        
+        self.clear_selected_row()
+        # clear self.history_table data
+        while self.history_table.rowCount() > 0:
+            self.history_table.removeRow(0)
+        
         for attendance in list_attendance:
             self._append_history_row(attendance)
+
+    def _refresh_classrooms(self) -> None:
+        client = MongoClientSingleton.get_client()
+        self.list_classrooms = list(client.db["classrooms"].find())
+        print(self.list_classrooms)
         
+    def clear_selected_row(self) -> None:
+        self._attendance_selected = None
+        self.id_value.setText('--')
+        self.name_value.setText('--')
+        self.class_value.setText('--')
+        self.time_value.setText('--')
+
+        self.status_label.setText('-')
+        self.avatar.clear()
+        self._update_student_image(None)
+        
+        # Implement the logic to clear the selected row
+        pass
 
     def _build_form_row(self) -> QtWidgets.QLayout:
         row = QtWidgets.QGridLayout()
@@ -250,14 +279,20 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         rtsp_label = QtWidgets.QLabel("RTSP URL")
         self.rtsp_edit = QtWidgets.QLineEdit(DEFAULT_RTSP_URL)
 
+        self.stream_toggle = QtWidgets.QCheckBox("Livestream")
+        self.stream_toggle.setChecked(True)
+        self.stream_toggle.toggled.connect(self._toggle_streaming)
+
         row.addWidget(source_label, 0, 0)
         row.addWidget(self.source_combo, 0, 1)
         row.addWidget(rtsp_label, 0, 2)
         row.addWidget(self.rtsp_edit, 0, 3, 1, 3)
+        row.addWidget(self.stream_toggle, 0, 6)
 
         row.setColumnStretch(1, 1)
         row.setColumnStretch(3, 1)
         row.setColumnStretch(5, 1)
+        row.setColumnStretch(6, 0)
         return row
 
     def _build_video_panel(self) -> QtWidgets.QWidget:
@@ -309,11 +344,13 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         print("Checking things...")
         for track_id, tracker in self._trackid_to_name.items():
             print(f"Track ID: {track_id}")
-            print(f"total frames: {len(tracker["frames"])}, "
-                  f"name: {tracker.get("name", "--")}, "
-                  f"area: {tracker.get("area", 0)}, "
-                  f"score: {tracker.get("score", 0)}, "
-                  f"student: {tracker.get("student", "--")}")
+            print(
+                f'total frames: {len(tracker["frames"])}, '
+                f'name: {tracker.get("name", "--")}, '
+                f'area: {tracker.get("area", 0)}, '
+                f'score: {tracker.get("score", 0)}, '
+                f'student: {tracker.get("student", "--")}'
+            )
         
     def _build_info_panel(self) -> QtWidgets.QWidget:
         panel = QtWidgets.QGroupBox()
@@ -321,17 +358,36 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(panel)
         layout.setSpacing(10)
         
-        self.success_label = QtWidgets.QLabel("Thông tin học sinh")
+        self.success_label = QtWidgets.QLabel("Thông tin điểm danh")
         self.success_label.setObjectName("successTitle")
         layout.addWidget(self.success_label)
 
+        btn_layout = QtWidgets.QHBoxLayout()
+        avatar_column = QtWidgets.QHBoxLayout()
+        avatar_column.setSpacing(6)
+
         self.avatar = QtWidgets.QLabel()
-        self.avatar.setFixedHeight(180)
+        self.avatar.setFixedSize(120, 120)
         self.avatar.setObjectName("avatar")
         self.avatar.setAlignment(QtCore.Qt.AlignCenter)
-        # self.avatar.setPixmap(build_placeholder_pixmap(QtCore.QSize(200, 180), "?"))
-        # self.avatar.setScaledContents(True)
-        layout.addWidget(self.avatar)
+        avatar_column.addWidget(self.avatar)
+
+        self.student_image = QtWidgets.QLabel()
+        self.student_image.setFixedSize(120, 120)
+        self.student_image.setObjectName("avatar")
+        self.student_image.setAlignment(QtCore.Qt.AlignCenter)
+        avatar_column.addWidget(self.student_image)
+        avatar_column.addStretch(1)
+        btn_layout.addLayout(avatar_column, stretch=1)
+        
+        action_row = QtWidgets.QVBoxLayout()
+        self.update_student_btn = QtWidgets.QPushButton("Cập nhật")
+        self.update_student_btn.setObjectName("ghostButton")
+        self.update_student_btn.clicked.connect(self._open_update_student_dialog)
+        action_row.addWidget(self.update_student_btn, alignment=QtCore.Qt.AlignTop)
+        btn_layout.addLayout(action_row)
+        
+        layout.addLayout(btn_layout)
 
         info_form = QtWidgets.QFormLayout()
         info_form.setLabelAlignment(QtCore.Qt.AlignLeft)
@@ -341,14 +397,19 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.name_value = QtWidgets.QLabel("--")
         self.class_value = QtWidgets.QLabel("--")
         self.time_value = QtWidgets.QLabel("--")
-        info_form.addRow("ID Sinh Viên:", self.id_value)
-        info_form.addRow("Tên Sinh Viên:", self.name_value)
+        info_form.addRow("ID Học sinh:", self.id_value)
+        info_form.addRow("Tên Học sinh:", self.name_value)
         info_form.addRow("Lớp:", self.class_value)
         info_form.addRow("Thời gian:", self.time_value)
         layout.addLayout(info_form)
+
         
         
         
+        divider = QtWidgets.QWidget()
+        divider.setFixedHeight(1)
+        divider.setObjectName("hLine")
+        layout.addWidget(divider)
 
         history_label = QtWidgets.QLabel("Lịch sử điểm danh")
         history_label.setObjectName("historyTitle")
@@ -372,10 +433,286 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         return panel
     
     def _on_history_cell_clicked(self, row: int, column: int) -> None:
-        attendance = self.history_table.item(row, 0).data(QtCore.Qt.UserRole)
-        if attendance is not None:
-            self._update_attendance_panel(attendance)
-            print(attendance)
+        self._attendance_selected = self.history_table.item(row, 0).data(QtCore.Qt.UserRole)
+        self._attendance_selected_row = row
+        if self._attendance_selected is not None:
+            self._update_attendance_panel(self._attendance_selected)
+            # print(self._attendance_selected)
+
+    def _open_update_student_dialog(self) -> None:
+        if self._attendance_selected is None:
+            QtWidgets.QMessageBox.information(self, "Thiếu dữ liệu", "Chưa chọn học sinh để cập nhật.")
+            return
+
+        def get_avatar(path: str) -> QtGui.QPixmap:
+            print(path)
+            if not path or not os.path.exists(path):
+                print("File does not exist")
+                return QtGui.QPixmap()
+            pixmap = QtGui.QPixmap(path).scaled(180, 180, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            return pixmap
+        
+        def update_student_avatar(student_id: ObjectId) -> None:
+            image_path = get_student_avatar_path(AVATAR_DIR, student_id)
+            if image_path and os.path.exists(image_path):
+                image = get_avatar(image_path)
+                student_avatar.setPixmap(image)
+            else:
+                student_avatar.clear()
+                
+        def update_attendance_avatar(attendance_id: ObjectId) -> None:
+            image_path = get_attendance_frame_path(CHECKIN_DIR, self._attendance_selected.time, attendance_id)
+            if image_path and os.path.exists(image_path):
+                image = get_avatar(image_path)
+                attendance_avatar.setPixmap(image)
+            else:
+                attendance_avatar.clear()
+                
+        student_repo = StudentRepository()
+        attendance_repo = AttendanceRepository()
+        
+        student = None
+        student_id = self._attendance_selected.student_id
+        if student_id is not None:
+            try:
+                if not isinstance(student_id, ObjectId):
+                    student_id = ObjectId(str(student_id))
+                student = student_repo.get(student_id)
+            except Exception:
+                student_id = None
+
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Cập nhật học sinh")
+        dialog.setModal(True)
+
+        form = QtWidgets.QFormLayout(dialog)
+        student_avatar_box = QtWidgets.QWidget()
+        student_avatar_box_layout = QtWidgets.QVBoxLayout(student_avatar_box)
+        student_avatar_box_layout.setContentsMargins(0, 0, 0, 0)
+        student_avatar_box_layout.addWidget(QtWidgets.QLabel("Ảnh học sinh"))
+        student_avatar = QtWidgets.QLabel()
+        student_avatar.setObjectName("avatar")
+        student_avatar.setFixedSize(180, 180)
+        student_avatar.setAlignment(QtCore.Qt.AlignCenter)
+        student_avatar_box_layout.addWidget(student_avatar)
+        
+        attendance_avatar_box = QtWidgets.QWidget()
+        attendance_avatar_box_layout = QtWidgets.QVBoxLayout(attendance_avatar_box)
+        attendance_avatar_box_layout.setContentsMargins(0, 0, 0, 0)
+        attendance_avatar_box_layout.addWidget(QtWidgets.QLabel("Ảnh điểm danh"))
+        attendance_avatar = QtWidgets.QLabel()
+        attendance_avatar.setObjectName("avatar")
+        attendance_avatar.setFixedSize(180, 180)
+        attendance_avatar.setAlignment(QtCore.Qt.AlignCenter)
+        attendance_avatar_box_layout.addWidget(attendance_avatar)
+        # if student and student.images:
+        #     image_path = os.path.normpath(student.images)
+        #     if not os.path.isabs(image_path):
+        #         image_path = os.path.join(ROOT_DIR, image_path)
+        #     if os.path.exists(image_path):
+        #         pixmap = QtGui.QPixmap(image_path).scaled(48, 48, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+        #         avatar.setPixmap(pixmap)
+        images_row = QtWidgets.QHBoxLayout()
+        images_row.setContentsMargins(0, 0, 0, 0)
+        images_row.addWidget(student_avatar_box)
+        images_row.addWidget(attendance_avatar_box)
+        update_student_avatar(student_id)
+        update_attendance_avatar(self._attendance_selected.id)
+
+        id_edit = QtWidgets.QLineEdit(str(student.id) if student else "--")
+        id_edit.setStyleSheet("QLineEdit { background:#2a2a2a; color: gray; }")
+        id_edit.setReadOnly(True)
+        name_edit = QtWidgets.QLineEdit(student.name if student else self._attendance_selected.student_name)
+        
+        students = student_repo.find()
+        selected_student = {"value": None}
+        select_student_btn = QtWidgets.QPushButton("Chọn")
+        select_student_btn.setObjectName("primaryButton")
+
+        class_combo = QtWidgets.QComboBox()
+        class_combo.addItem("Chọn lớp...", None)
+        
+        for classroom in self.list_classrooms:
+            class_combo.addItem(classroom.get("name", ""), classroom.get("_id"))
+
+        class_combo.addItem("+ Thêm lớp mới", "__new__")
+        new_class_edit = QtWidgets.QLineEdit()
+        new_class_edit.setPlaceholderText("Nhập tên lớp mới")
+        new_class_edit.setVisible(False)
+
+        def set_class_selection(class_id) -> None:
+            if class_id is None:
+                return
+            for idx in range(class_combo.count()):
+                if str(class_combo.itemData(idx)) == str(class_id):
+                    class_combo.setCurrentIndex(idx)
+                    break
+
+        if student and student.class_id is not None:
+            set_class_selection(student.class_id)
+
+        def handle_student_pick() -> None:
+            picked = self._open_student_picker(students)
+            if picked is None:
+                return
+            selected_student["value"] = picked
+            name_edit.setText(picked.name)
+            set_class_selection(picked.class_id)
+            update_student_avatar(picked.id)
+            
+
+        select_student_btn.clicked.connect(handle_student_pick)
+
+        def handle_class_change() -> None:
+            is_new = class_combo.currentData() == "__new__"
+            new_class_edit.setVisible(is_new)
+
+        class_combo.currentIndexChanged.connect(handle_class_change)
+        handle_class_change()
+
+        picker_row = QtWidgets.QHBoxLayout()
+        picker_row.addWidget(id_edit, stretch=1)
+        picker_row.addWidget(select_student_btn)
+        form.addRow("", images_row)
+        form.addRow("ID:", picker_row)
+        form.addRow("Tên:", name_edit)
+        class_row = QtWidgets.QVBoxLayout()
+        class_row.addWidget(class_combo)
+        class_row.addWidget(new_class_edit)
+        form.addRow("Lớp:     ", class_row)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        global new_name, selected_student_id, new_class_id, class_name
+        new_name = ''
+        selected_student_id = None
+        new_class_id = None
+        class_name = None
+        
+        def on_accept():
+            global new_name, selected_student_id, new_class_id, class_name
+            new_name = name_edit.text().strip()
+            selected_student_id = selected_student["value"].id if selected_student["value"] is not None else None
+            new_class_id = class_combo.currentData()
+            if not new_name:
+                QtWidgets.QMessageBox.warning(self, "Thiếu dữ liệu", "Vui lòng nhập tên học sinh.")
+                return
+
+            if new_class_id == "__new__":
+                new_class_name = new_class_edit.text().strip()
+                if not new_class_name:
+                    QtWidgets.QMessageBox.warning(self, "Thiếu dữ liệu", "Vui lòng nhập tên lớp mới.")
+                    return
+                client = MongoClientSingleton.get_client()
+                result = client.db["classrooms"].insert_one({"name": new_class_name})
+                new_class_id = result.inserted_id
+                self._refresh_classrooms()
+                class_name = new_class_name
+            elif new_class_id is None:
+                QtWidgets.QMessageBox.warning(self, "Thiếu dữ liệu", "Vui lòng chọn lớp.")
+                return
+            else:
+                class_name = class_combo.currentText()
+            dialog.accept()
+            
+        buttons.accepted.connect(on_accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return
+
+        
+
+        if selected_student_id is not None:
+            student_id = selected_student_id
+
+        if student_id is None:
+            # Sử dụng thông tin từ self._attendance_selected làm id cho học sinh mới
+            student = Student(id=self._attendance_selected.id, name=new_name, class_id=new_class_id, images="")
+            student_id = student_repo.insert(student)
+            if not os.path.exists(AVATAR_DIR):
+                os.makedirs(AVATAR_DIR)
+            attendance_avatar.pixmap().save(os.path.join(AVATAR_DIR, f"{student_id}.jpg"))
+            # self._save_queue.put
+        else:
+            student_repo.update(student_id, {"name": new_name, "class_id": new_class_id})
+
+        attendance_repo.update(self._attendance_selected.id, {
+            "student_id": student_id,
+            "student_name": new_name,
+            "student_classroom": class_name
+        })
+
+        self.name_value.setText(new_name)
+        self.class_value.setText(class_name)
+
+        if self._attendance_selected is not None:
+            self._attendance_selected.student_name = new_name
+            self._attendance_selected.student_classroom = class_name
+            self._attendance_selected.student_id = student_id
+
+        self._update_student_image(student_id)
+
+        if self._attendance_selected_row is not None:
+            self.history_table.item(self._attendance_selected_row, 0).setText(class_name)
+            self.history_table.item(self._attendance_selected_row, 1).setText(new_name)
+
+    def _open_student_picker(self, students: list[Student]) -> Optional[Student]:
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Chọn học sinh")
+        dialog.setModal(True)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        table = QtWidgets.QTableWidget(0, 4)
+        table.setHorizontalHeaderLabels(["ID", "Lớp", "Tên", "Ảnh"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+
+        class_map = {str(c.get("_id")): c.get("name", "") for c in self.list_classrooms}
+
+        for student in students:
+            row = table.rowCount()
+            table.insertRow(row)
+            table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(student.id)))
+            table.setItem(row, 1, QtWidgets.QTableWidgetItem(class_map.get(str(student.class_id), "")))
+            table.setItem(row, 2, QtWidgets.QTableWidgetItem(student.name))
+
+            image_item = QtWidgets.QTableWidgetItem("--")
+            image_path = get_student_avatar_path(AVATAR_DIR, student.id)
+            if image_path and os.path.exists(image_path):
+                pixmap = QtGui.QPixmap(image_path).scaled(120, 120, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+                image_item = QtWidgets.QTableWidgetItem()
+                image_item.setIcon(QtGui.QIcon(pixmap))
+                image_item.setSizeHint(QtCore.QSize(120, 120))
+            table.setItem(row, 3, image_item)
+            table.item(row, 0).setData(QtCore.Qt.UserRole, student)
+
+        layout.addWidget(table)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        def accept_on_double_click() -> None:
+            dialog.accept()
+
+        table.itemDoubleClicked.connect(lambda _: accept_on_double_click())
+
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return None
+
+        current_row = table.currentRow()
+        if current_row < 0:
+            return None
+
+        student = table.item(current_row, 0).data(QtCore.Qt.UserRole)
+        return student
 
 
     def _apply_styles(self) -> None:
@@ -393,16 +730,34 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 color: #d9e2ef;
             }
             QLineEdit, QComboBox {
-                background: #2a2a2a;
+                background: #1f1f1f;
                 border: 1px solid #3d3d3d;
                 border-radius: 6px;
                 padding: 6px 10px;
                 color: #e5e7eb;
             }
             QComboBox::drop-down {
-                border: none;
-                width: 24px;
+                subcontrol-position: center right;
+                width: 20px;
+                border: 1px solid #CCCCCC;
+                border-radius: 2px;
+                background: #f0f0f0;
+                margin: 1px;
             }
+            
+            QComboBox::down-arrow {
+                width: 0px;
+                height: 0px;
+                border-left: 6px solid #f0f0f0;
+                border-right: 6px solid #f0f0f0;
+                border-top: 8px solid #333333;
+                margin-top: 2px;
+            }
+            
+            QComboBox::down-arrow:hover {
+                border-top-color: #2196F3;
+            }
+            
             QGroupBox {
                 border: 1px solid #2f2f2f;
                 border-radius: 12px;
@@ -435,6 +790,10 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 font-size: 11pt;
                 font-weight: 700;
                 color: #93c5fd;
+            }
+            #hLine {
+                background: #2f2f2f;
+                height: 1px;
             }
             #avatar {
                 border: 1px dashed #3a3a3a;
@@ -556,6 +915,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Lỗi", "Không mở được nguồn video.")
             return
         print(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH), self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self._Frame_FPS = self._capture.get(cv2.CAP_PROP_FPS)
         self._running = True
         self.open_btn.setText("Kết thúc")
         
@@ -568,8 +928,100 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self._detect_thread = threading.Thread(target=self.detect_worker, daemon=True)
         self._detect_thread.start()
         
+        # Implement the logic for live streaming here
+        self._start_streaming()
         self._timer.start()
+
+    def _start_streaming(self) -> None:
+        if not self._streaming_enabled or not DEFAULT_RTMP_URL:
+            return
+
+        fps = self._Frame_FPS or 25
+        command = [
+            'ffmpeg',
+            '-re',  # Đọc với tốc độ thời gian thực
+            '-f', 'rawvideo',  # Định dạng đầu vào là raw video
+            '-pix_fmt', 'bgr24',  # Pixel format từ OpenCV
+            '-s', f'{FRAME_WIDTH}x{FRAME_HEIGHT}',  # Kích thước frame
+            '-r', str(fps),  # Frame rate
+            '-i', 'pipe:0',  # Đọc từ stdin
+            '-c:v', 'libx264',  # Encode H264
+            '-preset', 'ultrafast',
+            '-f', 'flv',  # RTMP uses FLV muxer
+            DEFAULT_RTMP_URL
+        ]
+        try:
+            self._ffmpeg_process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            print(f"FFmpeg start failed: {exc}")
+            self._ffmpeg_process = None
+            self._streaming_enabled = False
+            return
+
+        time.sleep(0.2)
+        if self._ffmpeg_process.poll() is not None:
+            stderr = self._ffmpeg_process.stderr.read().decode("utf-8", errors="ignore") if self._ffmpeg_process.stderr else ""
+            print(f"FFmpeg exited early. Live stream disabled.\n{stderr}")
+            self._ffmpeg_process = None
+            self._streaming_enabled = False
+            return
+
+        self._live_stream_thread = threading.Thread(target=self._live_stream_worker, daemon=True)
+        self._live_stream_thread.start()
+
+    def _toggle_streaming(self, enabled: bool) -> None:
+        self._streaming_enabled = enabled
+        if not enabled:
+            self._stop_streaming()
+            return
+        if self._running and self._ffmpeg_process is None:
+            self._start_streaming()
         
+    def _live_stream_worker(self):
+        counter = 0
+        print('Live stream worker started.')
+        while self._running:
+            try:
+                # print('Begin get frame for stream')
+                frame = self._livestream_queue.get(timeout=0.5)
+                # print('Got frame for stream')
+            except queue.Empty:
+                # print('Live stream queue is empty.')
+                continue
+
+            try:
+                counter += 1
+                if self._ffmpeg_process is None:
+                    # print('FFmpeg process is None.')
+                    continue
+                if self._ffmpeg_process.poll() is not None:
+                    # print('FFmpeg process has exited.')
+                    continue
+                # print('Writing frame to FFmpeg stdin.')
+                self._ffmpeg_process.stdin.write(frame.tobytes())
+                # print('Frame written to FFmpeg stdin.')
+            except Exception as e:
+                print(f"Error writing to ffmpeg stdin: {e}")
+        print('Live stream worker stopped.')
+
+    def _stop_streaming(self) -> None:
+        if self._ffmpeg_process is None:
+            return
+        try:
+            if self._ffmpeg_process.stdin:
+                self._ffmpeg_process.stdin.close()
+        except Exception:
+            pass
+        try:
+            self._ffmpeg_process.terminate()
+        except Exception:
+            pass
+        self._ffmpeg_process = None
 
     def detect_worker(self):
         global detect_frame_count,trackid_saved_known
@@ -739,9 +1191,11 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.open_btn.setText("Bắt đầu")
         self._timer.stop()
 
-        for thread in (self._capture_thread, self._detect_thread):
+        for thread in (self._capture_thread, self._detect_thread, self._live_stream_thread):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=1)
+
+        self._stop_streaming()
 
         self._release_capture()
         
@@ -782,7 +1236,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
 
             if self.source_combo.currentText() == "Webcam":
                 frame = cv2.flip(frame, 1)
-            frame = cv2.resize(frame, (1080, 720))
+            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
 
             with self._frame_lock:
                 self._latest_frame = frame.copy()
@@ -853,16 +1307,14 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.time_value.setText(to_local(record.time).strftime("%H:%M:%S"))
 
         status = (
-            f"Thông báo: {record.student_name} đã điểm danh (score {record.score:.2f})."
+            f"Thông báo: {record.student_name} đã điểm danh lúc {to_local(record.time).strftime('%H:%M:%S')}."
         )
         self.status_label.setText(status)
         
         if face_crop is None:
-            now_path = os.path.join(CHECKIN_DIR, time.strftime("%Y-%m-%d"), str(record.id))
-            print(now_path)
-            if os.path.exists(os.path.join(now_path, "frame.jpg")):
-                print(os.path.join(now_path, "frame.jpg"))
-                face_crop = cv2.imread(os.path.normpath(os.path.join(now_path, "frame.jpg")))
+            frame_path = get_attendance_frame_path(CHECKIN_DIR, record.time, record.id)
+            if frame_path and os.path.exists(frame_path):
+                face_crop = cv2.imread(os.path.normpath(frame_path))
 
 
         if face_crop is not None and face_crop.size > 0:
@@ -870,7 +1322,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             # print(target_size)
             
             if target_size.width() <= 0:
-                target_size = QtCore.QSize(200, self.avatar.height())
+                target_size = QtCore.QSize(120, self.avatar.height())
 
             # print(target_size)
             rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
@@ -901,6 +1353,29 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             # tmp_label.show()
         else:
             self.avatar.clear()
+
+        self._update_student_image(record.student_id)
+
+    def _update_student_image(self, student_id: Optional[ObjectId]) -> None:
+        if student_id is None:
+            self.student_image.clear()
+            return
+
+        image_path = get_student_avatar_path(AVATAR_DIR, student_id)
+        if not image_path or not os.path.exists(image_path):
+            self.student_image.clear()
+            return
+
+        target_size = self.student_image.size()
+        if target_size.width() <= 0:
+            target_size = QtCore.QSize(120, self.student_image.height())
+
+        pixmap = QtGui.QPixmap(image_path).scaled(
+            target_size,
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation,
+        )
+        self.student_image.setPixmap(pixmap)
 
     def _append_history_row(self, record: Attendance) -> None:
         row = 0
@@ -944,6 +1419,10 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.video_frame.setPixmap(pixmap.scaled(
             self.video_frame.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
         ))
+        try:
+            self._livestream_queue.put_nowait(frame.copy())
+        except queue.Full:
+            pass
 
     def _show_history(self) -> None:
         self.history_table.scrollToBottom()

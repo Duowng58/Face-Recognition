@@ -1,1 +1,10 @@
+annoy
+insightface
+matplotlib
+numpy
+opencv-python
+Pillow
 PySide6>=6.6
+pymongo
+scikit-learn
+scipy

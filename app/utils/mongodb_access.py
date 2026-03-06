@@ -144,13 +144,11 @@ class Student:
 	id: Optional[ObjectId]
 	name: str
 	class_id: str
-	images: str
 
 	def to_document(self) -> dict[str, Any]:
 		payload = {
 			"name": self.name,
 			"class_id": self.class_id,
-			"images": self.images,
 		}
 		if self.id is not None:
 			payload["_id"] = self.id
@@ -162,7 +160,6 @@ class Student:
 			id=doc.get("_id"),
 			name=doc.get("name", ""),
 			class_id=doc.get("class_id", ""),
-			images=doc.get("images", ""),
 		)
 
 
