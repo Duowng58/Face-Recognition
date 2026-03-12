@@ -21,6 +21,7 @@ class MongoConfig:
 
 
 default_config = MongoConfig(
+    # uri=os.getenv("MONGODB_URI", "mongodb://admin:admin@27.71.225.6:4001"),
     uri=os.getenv("MONGODB_URI", "mongodb://admin:admin@localhost:27017"),
     database=os.getenv("MONGODB_DB", "student_attendance"),
 )

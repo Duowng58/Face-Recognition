@@ -8,3 +8,10 @@ PySide6>=6.6
 pymongo
 scikit-learn
 scipy
+
+
+sudo docker run -it --rm \
+    --runtime nvidia \
+    --network host \
+    -v /home/viettech/RUN2:/work \
+    nvcr.io/nvidia/l4t-ml:r32.7.1-py3

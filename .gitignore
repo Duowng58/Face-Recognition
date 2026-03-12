@@ -3,3 +3,7 @@ build
 /captured_faces
 /face_data_1
 *.pyc
+*.zip
+*.jpg
+*.png
+*.mp4
