@@ -30,7 +30,8 @@ ROOT_DIR = os.path.normpath(os.path.join(BASE_DIR, ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from app_tkinter.config import (
+# from app.config import VIDEO
+from app.config import (
     ANNOY_INDEX_PATH,
     AVATAR_DIR,
     CHECKIN_DIR,
@@ -46,6 +47,7 @@ from app_tkinter.config import (
     SIM_THRESHOLD,
     TREE,
     VIDEO_FPS,
+    VIDEO,
 )
 from app.services.recognition import RecognitionService
 from app.services.streaming import StreamingService
@@ -429,14 +431,16 @@ class AttendanceApp:
         self.root.title("Hệ thống điểm danh khuôn mặt")
         self.root.configure(bg=BG)
         # Start the app fullscreen. Bind F11 to toggle and Esc to exit.
-        try:
-            self.root.attributes("-fullscreen", True)
-            self._is_fullscreen = True
-        except Exception:
-            # Fallback to a reasonable window size if fullscreen not supported
-            self.root.geometry("1280x780")
-            self._is_fullscreen = False
+        # try:
+        #     self.root.attributes("-fullscreen", True)
+        #     self._is_fullscreen = True
+        # except Exception:
+        #     # Fallback to a reasonable window size if fullscreen not supported
+        #     self.root.geometry("1280x780")
+        #     self._is_fullscreen = False
         self.root.minsize(1180, 720)
+        self.root.state('zoomed')
+        # self.root.attributes("")
         # key bindings for convenience
         # self.root.bind("<F11>", lambda e: self._toggle_fullscreen())
         # self.root.bind("<Escape>", lambda e: self._exit_fullscreen())
@@ -507,9 +511,9 @@ class AttendanceApp:
         toolbar.pack(fill=tk.X, padx=16, pady=(0, 8))
 
         # tk.Label(toolbar, text="Nguồn video:", bg=BG, fg=FG, font=("Segoe UI", 10)).pack(side=tk.LEFT)
-        self._source_var = tk.StringVar(value="RTSP")
+        self._source_var = tk.StringVar(value="Video")
         source_combo = ttk.Combobox(toolbar, textvariable=self._source_var,
-                                     values=["Webcam", "RTSP"], state="readonly", width=10)
+                                     values=["Webcam", "RTSP", "Video"], state="readonly", width=10)
         # source_combo.pack(side=tk.LEFT, padx=(4, 12))
 
         tk.Label(toolbar, text="RTSP URL:", bg=BG, fg=FG, font=("Segoe UI", 10)).pack(side=tk.LEFT)
@@ -914,6 +918,8 @@ class AttendanceApp:
             if not source:
                 messagebox.showwarning("Thiếu RTSP", "Vui lòng nhập RTSP URL.")
                 return
+        elif self._source_var.get() == "Video":
+            source = VIDEO
 
         backend = cv2.CAP_ANY if source == 0 else cv2.CAP_FFMPEG
         self._capture = cv2.VideoCapture(source, backend)
@@ -985,9 +991,10 @@ class AttendanceApp:
                 continue
             if is_webcam:
                 frame = cv2.flip(frame, 1)
-            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+            # frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
             with self._frame_lock:
                 self._latest_frame = frame.copy()
+            time.sleep(1 / (self._Frame_FPS or 25))
         self._running = False
 
     # ==================================================================

@@ -53,12 +53,19 @@ class RecognitionService:
         threading.Thread(target=self._init_recognition, args=(status_callback,), daemon=True).start()
 
     def _init_recognition(self, status_callback: Callable[[str], None]) -> None:
+        trt_options = {
+            'device_id': '0',
+            'trt_max_workspace_size': '1073741824',
+            'trt_fp16_enable': True,
+            'trt_engine_cache_enable': True,        # Bật lưu cache
+            'trt_engine_cache_path': '/home/viettech/RUN/engine'     # Đường dẫn lưu file .engine
+        }
         self.face_app = FaceAnalysis(
-            name="buffalo_s",
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+            name="buffalo_l",
+            providers=[("TensorrtExecutionProvider", trt_options), "CUDAExecutionProvider"],
             allowed_modules=["detection", "recognition"],
         )
-        self.face_app.prepare(ctx_id=0, det_thresh=0.45, det_size=(FRAME_WIDTH, FRAME_HEIGHT))
+        self.face_app.prepare(ctx_id=0, det_thresh=0.45, det_size=(640, 640))
 
         if os.path.exists(self.annoy_index_path) and os.path.exists(self.mapping_path):
             self.annoy_index = AnnoyIndex(self.embedding_dim, "angular")

@@ -663,6 +663,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             try:
                 ret, frame = self._capture.read()
             except cv2.error:
+                self._stop_capture()
                 break
             if not ret:
                 time.sleep(0.01)

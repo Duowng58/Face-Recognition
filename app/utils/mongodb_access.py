@@ -256,9 +256,9 @@ class StudentRepository:
 
 
 class AttendanceRepository:
-	"""CRUD helper for the attendance collection."""
+	"""CRUD helper for the attendances collection."""
 
-	def __init__(self,  collection: str = "attendance") -> None:
+	def __init__(self,  collection: str = "attendances") -> None:
 		self._client = MongoClientSingleton.get_client()
 		self._collection = collection
 

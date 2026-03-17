@@ -103,7 +103,7 @@ class Tracker(QObject):
     def __init__(
         self,
         parent=None,
-        max_disappeared=3,  
+        max_disappeared=20,  
         base_dist_thresh=400,
         iou_weight=0.4,
         dist_weight=0.6,
@@ -330,6 +330,8 @@ class Tracker(QObject):
                 continue
             if tid not in active_in_result:
                 self.disappeared[tid] = self.disappeared.get(tid, 0) + 1
+            else:
+                self.disappeared[tid] = 0
 
         to_remove = [
             tid for tid, cnt in self.disappeared.items()
