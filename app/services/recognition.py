@@ -11,7 +11,6 @@ from annoy import AnnoyIndex
 from insightface.app import FaceAnalysis
 import onnxruntime as ort
 
-from app.config import FRAME_HEIGHT, FRAME_WIDTH
 
 
 
@@ -36,11 +35,12 @@ class RecognitionService:
 
         self.face_app: Optional[FaceAnalysis] = None
         self.annoy_index: Optional[AnnoyIndex] = None
+        self.annoy_unknown_index: Optional[AnnoyIndex] = None
         self.idx2name: dict[str, str] = {}
         
         
         
-        self.mask_session = ort.InferenceSession("models/mask_detector.onnx", providers=['CPUExecutionProvider'])
+        self.mask_session = ort.InferenceSession("models/mask_detector.onnx", providers=['CUDAExecutionProvider','CPUExecutionProvider'])
         self.mask_input_name = self.mask_session.get_inputs()[0].name
 
     # ------------------------------------------------------------------
@@ -55,7 +55,6 @@ class RecognitionService:
     def _init_recognition(self, status_callback: Callable[[str], None]) -> None:
         trt_options = {
             'device_id': '0',
-            'trt_max_workspace_size': '1073741824',
             'trt_fp16_enable': True,
             'trt_engine_cache_enable': True,        # Bật lưu cache
             'trt_engine_cache_path': '/home/viettech/RUN/engine'     # Đường dẫn lưu file .engine
@@ -65,7 +64,7 @@ class RecognitionService:
             providers=[("TensorrtExecutionProvider", trt_options), "CUDAExecutionProvider"],
             allowed_modules=["detection", "recognition"],
         )
-        self.face_app.prepare(ctx_id=0, det_thresh=0.45, det_size=(640, 640))
+        self.face_app.prepare(ctx_id=0, det_thresh=0.45, det_size=(736, 736))
 
         if os.path.exists(self.annoy_index_path) and os.path.exists(self.mapping_path):
             self.annoy_index = AnnoyIndex(self.embedding_dim, "angular")
@@ -99,13 +98,34 @@ class RecognitionService:
         for file_name in files:
             name = file_name.replace(".npy", "")
             data = np.load(os.path.join(self.face_data_dir, file_name))
-            if len(data) == 0:
-                print(f"Warning: No data found in {file_name}")
-                continue
-            for vector in data:
+            
+            # Kiểm tra nếu là kiểu cũ (List các array hoặc Object Array)
+            if data.dtype == object:
+                # Chuyển đổi list/object thành mảng 2D chuẩn (N, 512)
+                data = np.array(list(data))
+                
+            if data.ndim == 1:
+                data = data.reshape(1, -1)
+                
+            num_vectors = data.shape[0]
+            for i in range(num_vectors):
+                vector = data[i]
+                
+                # Kiểm tra độ dài vector
+                if vector is None or len(vector) != self.embedding_dim:
+                    print(f"Bỏ qua vector lỗi tại file {file_name}, index {i} (Length: {len(vector) if vector is not None else 0})")
+                    continue
+                
                 ann.add_item(idx, vector)
                 idx2name[idx] = name
                 idx += 1
+            # if len(data) == 0:
+            #     print(f"Warning: No data found in {file_name}")
+            #     continue
+            # for vector in data:
+            #     ann.add_item(idx, vector)
+            #     idx2name[idx] = name
+            #     idx += 1
 
         ann.build(self.tree)
         if self.annoy_index is not None:

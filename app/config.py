@@ -9,7 +9,11 @@ FACE_DATA_DIR = os.path.normpath(os.path.join(ROOT_DIR, "face_data_1"))
 ANNOY_INDEX_PATH = os.path.join(FACE_DATA_DIR, "face_index.ann")
 MAPPING_PATH = os.path.join(FACE_DATA_DIR, "image_paths.json")
 
-MIN_BBOX_AREA = 2000
+FACE_DATA_UNKNOWN_DIR = os.path.normpath(os.path.join(ROOT_DIR, "face_data_unknown"))
+ANNOY_UNKNOWN_INDEX_PATH = os.path.join(FACE_DATA_UNKNOWN_DIR, "face_index_unknown.ann")
+MAPPING_UNKNOWN_PATH = os.path.join(FACE_DATA_UNKNOWN_DIR, "image_paths_unknown.json")
+
+MIN_BBOX_AREA = 1024
 EMBEDDING_DIM = 512
 TREE = 50
 SIM_THRESHOLD = 0.6
@@ -25,7 +29,7 @@ VIDEO_FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
 
 DEFAULT_RTSP_URL = "rtsp://admin:Ancovn12@192.168.1.231:554/Streaming/Channels/201/video"
 DEFAULT_RTMP_URL = "rtmp://124.158.7.217:5001/LiveStream/detect_01"
-VIDEO = "app/record-2026-03-17-06-30-55.mp4"
+VIDEO = "app/record-2026-03-17-06-45-57.mp4"
 
 
 FONT_PATH = os.path.join(ROOT_DIR, "app", "fonts", "Arial.ttf")

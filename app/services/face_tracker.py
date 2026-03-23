@@ -105,9 +105,9 @@ class Tracker(QObject):
         parent=None,
         max_disappeared=20,  
         base_dist_thresh=400,
-        iou_weight=0.4,
-        dist_weight=0.6,
-        min_iou_thresh=0.05,
+        iou_weight=0.5,
+        dist_weight=0.5,
+        min_iou_thresh=0.1,
         fast_speed_thresh=15.0,
         match_cost_thresh=1.5,
     ):
@@ -142,7 +142,7 @@ class Tracker(QObject):
         # [FIX] Tăng hệ số speed từ 2.5 → 4.0, cap từ 200 → 400
         speed_bonus = min(speed * 4.5, 500)
 
-        return base + speed_bonus
+        return min(base + speed_bonus, 800) 
 
     # ──────────────────────────────────────────
     def _build_cost_matrix(self, detections, track_ids):
@@ -313,6 +313,8 @@ class Tracker(QObject):
 
             new_id = self.id_count
             self.id_count += 1
+            if self.id_count > 1000:
+                self.id_count = 0
 
             self.kalman[new_id] = KalmanBox(cx, cy)
             self.kalman[new_id].update(cx, cy)
