@@ -64,7 +64,7 @@ class RecognitionService:
             providers=[("TensorrtExecutionProvider", trt_options), "CUDAExecutionProvider"],
             allowed_modules=["detection", "recognition"],
         )
-        self.face_app.prepare(ctx_id=0, det_thresh=0.45, det_size=(736, 736))
+        self.face_app.prepare(ctx_id=0, det_thresh=0.45, det_size=(640, 640))
 
         if os.path.exists(self.annoy_index_path) and os.path.exists(self.mapping_path):
             self.annoy_index = AnnoyIndex(self.embedding_dim, "angular")

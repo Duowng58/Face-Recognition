@@ -29,7 +29,7 @@ VIDEO_FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
 
 DEFAULT_RTSP_URL = "rtsp://admin:Ancovn12@192.168.1.231:554/Streaming/Channels/201/video"
 DEFAULT_RTMP_URL = "rtmp://124.158.7.217:5001/LiveStream/detect_01"
-VIDEO = "app/record-2026-03-17-06-45-57.mp4"
+VIDEO = "app/record-2026-03-23-13-45-21.mkv"
 
 
 FONT_PATH = os.path.join(ROOT_DIR, "app", "fonts", "Arial.ttf")
