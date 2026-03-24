@@ -1,58 +1,32 @@
 from __future__ import annotations
 
 import os
-import queue
-import threading
-import time
-from typing import Optional, Tuple
+from typing import Optional
 
 from bson import ObjectId
 import cv2
-from matplotlib.pylab import f
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from app.config import (
-    ANNOY_INDEX_PATH,
     AVATAR_DIR,
     CHECKIN_DIR,
-    DEFAULT_RTMP_URL,
     DEFAULT_RTSP_URL,
-    EMBEDDING_DIM,
-    FACE_DATA_DIR,
-    FONT_PATH,
     FRAME_HEIGHT,
     FRAME_WIDTH,
-    MAPPING_PATH,
-    MIN_BBOX_AREA,
-    SIM_THRESHOLD,
-    TREE,
     VIDEO,
-    VIDEO_FOURCC,
-    VIDEO_FPS,
 )
-from app.services.recognition import RecognitionService
-from app.services.streaming import StreamingService
 from app.ui.dialogs import UpdateStudentDialog
 from app.ui.styles import STYLE_SHEET
-from app.utils.cv2_helper import check_blur_laplacian, cv2_putText_utf8
-from app.utils.image_utils import (
-    get_attendance_frame_path,
-    get_student_avatar_path,
-)
 from app.utils.mongodb_access import (
     Attendance,
-    AttendanceRepository,
-    MongoClientSingleton,
     Student,
-    StudentRepository,
-    now_local,
-    start_of_today_local,
     to_local,
 )
 from app.utils.qt_invoker import qt_invoke
-from app.services.face_tracker import Tracker
-# from norfair import Detection, Tracker, draw_tracked_objects
+
+from scripts.services.attendance import AttendanceService
+from scripts.utils.image_utils import get_student_avatar_path
 
 
 class AttendanceWindow(QtWidgets.QMainWindow):
@@ -83,74 +57,23 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         content_layout.addWidget(self._build_video_panel(), stretch=3)
         content_layout.addWidget(self._build_info_panel(), stretch=2)
 
-        # -- state --
-        self._last_seen: dict[str, float] = {}
-        self._capture: Optional[cv2.VideoCapture] = None
-        self._capture_thread: Optional[threading.Thread] = None
-        self._running = False
-        self._frame_lock = threading.Lock()
-        self._latest_frame: Optional[np.ndarray] = None
-
-        # -- recognition service --
-        self._recognition = RecognitionService(
-            face_data_dir=FACE_DATA_DIR,
-            annoy_index_path=ANNOY_INDEX_PATH,
-            mapping_path=MAPPING_PATH,
-            embedding_dim=EMBEDDING_DIM,
-            tree=TREE,
-            sim_threshold=SIM_THRESHOLD,
-        )
-
-        # -- streaming service --
-        self._streaming = StreamingService(
-            frame_width=FRAME_WIDTH,
-            frame_height=FRAME_HEIGHT,
-            rtmp_url=DEFAULT_RTMP_URL,
-        )
-
-        # -- tracker --
-        self._tracker = Tracker()
-        self._tracker.on_disappeared_signal.connect(self._handle_disappeared)
-
-      
-        # -- stats --
-        self.current_detect_time = 0.0
-        self.current_faces = 0
-        self.current_faces_valid = 0
-        self.frame_count = 0
-        self.detect_frame_count = 0
-        
-        # -- db access --
-        self._attendance_repo = AttendanceRepository()
-        self._student_repo = StudentRepository()
-
-        self._trackid_to_name: dict = {}
-
-        self._save_queue: queue.Queue = queue.Queue()
+        # -- attendance service (all logic lives here) --
+        self._svc = AttendanceService()
+        self._svc.on_status = lambda msg: qt_invoke(lambda: self.status_label.setText(msg))
+        self._svc.on_attendance = lambda rec: qt_invoke(lambda: self._on_new_attendance(rec))
+        self._svc.tracker.on_disappeared = lambda tid: qt_invoke(lambda: self._svc.handle_disappeared(tid))
+        self._svc.on_video_end = lambda: qt_invoke(lambda: self._on_video_end())
 
         self._attendance_selected: Optional[Attendance] = None
         self._attendance_selected_row: Optional[int] = None
-        self.list_classrooms: list = []
 
-        os.makedirs(CHECKIN_DIR, exist_ok=True)
-
-        self._load_recognition_assets()
+        self._svc.load_recognition_assets()
 
         self._timer = QtCore.QTimer(self)
         self._timer.setInterval(30)
         self._timer.timeout.connect(self._render_frame)
 
-        def save_worker():
-            while True:
-                frame, path = self._save_queue.get()
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                cv2.imwrite(path, frame)
-                self._save_queue.task_done()
-
-        threading.Thread(target=save_worker, daemon=True).start()
-
         self.setStyleSheet(STYLE_SHEET)
-
         self.load_params()
 
     # ==================================================================
@@ -158,151 +81,19 @@ class AttendanceWindow(QtWidgets.QMainWindow):
     # ==================================================================
 
     def _load_recognition_assets(self) -> None:
-        self.status_label.setText("Thông báo: Đang tải mô hình nhận diện...")
-        self._recognition.load_assets(
-            lambda msg: qt_invoke(lambda: self.status_label.setText(msg))
-        )
-        
+        self._svc.load_recognition_assets()
 
     def _build_face(self) -> None:
-        self._recognition.build_face(
-            on_complete=lambda msg: qt_invoke(lambda: self.status_label.setText(msg))
-        )
-
-    def _recognize(self, embedding: np.ndarray) -> Tuple[str, float]:
-        return self._recognition.recognize(embedding)
-
-    # ==================================================================
-    # Tracker disappeared handler
-    # ==================================================================
-
-    def _handle_disappeared(self, track_id: int) -> None:
-        print(f"Object {track_id} disappeared")
-        tracker = self._trackid_to_name.get(track_id)
-        if tracker is None:
-            return
-        print(f"Track ID: {track_id}")
-        # print(tracker)
-        print(
-            f"total frames: {len(tracker['frames'])}, "
-            f"name: {tracker.get('name', '--')}, "
-            f"variance: {tracker.get('variance', 0)}, "
-            f"score: {tracker.get('score', 0)}, "
-            f"student: {tracker.get('student', '--')}"
-        )
-
-        tracker_snapshot = {
-            "frames": list(tracker.get("frames", [])),
-            "frame": tracker.get("frame"),
-            "name": tracker.get("name"),
-            "score": tracker.get("score", 0),
-            "attendance_id": tracker.get("attendance_id"),
-            "video_writer": tracker.get("video_writers"),
-        }
-        self._trackid_to_name.pop(track_id, None)
-
-        def handle_disappeared() -> None:
-            timestamp = now_local()
-
-            def save_frames(attendance_id):
-                now_path = os.path.join(CHECKIN_DIR, timestamp.strftime("%Y-%m-%d"), str(attendance_id))
-                if tracker_snapshot["frame"] is not None:
-                    self._save_queue.put((tracker_snapshot["frame"], os.path.join(now_path, "frame.jpg")))
-                for index, (_, __, frame, emb) in enumerate(tracker_snapshot["frames"]):
-                    self._save_queue.put((frame, os.path.join(now_path, "frames", f"frame_{index}.jpg")))
-
-                video_writer = tracker_snapshot.get("video_writer")
-                if video_writer is not None:
-                    video_writer.release()
-                    old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
-                    new_path = os.path.join(CHECKIN_DIR, timestamp.strftime("%Y-%m-%d"), str(attendance_id), "video.mp4")
-                    os.makedirs(os.path.dirname(new_path), exist_ok=True)
-                    if os.path.exists(old_path):
-                        os.rename(old_path, new_path)
-
-            if tracker_snapshot.get("name") == "Unknown":
-                if tracker_snapshot.get("frame") is None:
-                    print("No frame available for unknown tracker")
-                    return
-                if len(tracker_snapshot["frames"]) < 10:
-                    print("Not enough frames for unknown tracker")
-                    return
-            print("Process unknown tracker")
-            attendance_unknown_id = ObjectId()
-            save_frames(attendance_unknown_id)
-
-            attendance_unknown = Attendance(
-                id=attendance_unknown_id,
-                time=timestamp,
-                student_name="Unknown",
-                score=tracker_snapshot.get("score", 0),
-            )
-            
-            
-            if tracker_snapshot.get("name") != "Unknown":
-                find_attendance = self._attendance_repo.find({"_id": ObjectId(tracker_snapshot.get("name"))})
-                if len(find_attendance) > 0:
-                    attendance = find_attendance[0]
-                    if attendance.student_id:
-                        find_student = self._student_repo.find({"_id": attendance.student_id})
-                        if len(find_student) > 0:
-                            student = find_student[0]
-                            attendance_unknown.student_id = student.id
-                            attendance_unknown.student_name = student.name
-                            # label = f"ID:{track_id} {student.name} {score:.2f}"
-                            find_attendance = self._attendance_repo.find({
-                                "student_id": student.id,
-                                "time": {"$gte": start_of_today_local()}
-                            })
-                            if len(find_attendance) > 0:
-                                return
-                            
-                            find_class = next((c for c in self.list_classrooms if c["_id"] == student.class_id), None)
-                            attendance_unknown.student_classroom = find_class["name"] if find_class else ""
-            
-            self._attendance_repo.insert(attendance_unknown)
-            self.build_unknown_face(tracker_snapshot, attendance_unknown)
-            qt_invoke(lambda: self._append_history_row(attendance_unknown))
-            # else:
-            #     attendance_id = tracker_snapshot.get("attendance_id")
-            #     if attendance_id is not None:
-            #         print("Điểm danh unknown")
-            #         save_frames(attendance_id)
-            #     else:
-            #         video_writer = tracker_snapshot.get("video_writer")
-            #         if video_writer is not None:
-            #             print("Release video writer, Không điểm danh")
-            #             video_writer.release()
-            #             old_path = os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4")
-            #             if os.path.exists(old_path):
-            #                 os.remove(old_path)
-            #         else:
-            #             print("Do nothing")
-
-        threading.Thread(target=handle_disappeared, daemon=True).start()
-
-    def build_unknown_face(self, tracker: dict, attendance_unknown: Attendance) -> None:
-        embeddings = []
-        if len(tracker["frames"]) > 10:
-            for variance, frame_count, face_crop, emb in tracker["frames"]:
-                embeddings.append(emb)
-            print('total embeddings:', len(embeddings))
-            if len(embeddings) > 0:
-                embeddings_array = np.array(embeddings)
-                np.save(os.path.join(FACE_DATA_DIR, f"{attendance_unknown.id}.npy"), embeddings_array)
-                print("[🔁] Rebuild Annoy Index")
-            # self._build_face()
+        self._svc.build_face()
 
     # ==================================================================
     # Data loading
     # ==================================================================
 
     def load_params(self) -> None:
-        self._refresh_classrooms()
+        self._svc.refresh_classrooms()
 
-        list_attendance = self._attendance_repo.find({
-            "time": {"$gte": start_of_today_local()}
-        })
+        list_attendance = self._svc.load_today_attendance()
 
         self.clear_selected_row()
         while self.history_table.rowCount() > 0:
@@ -310,11 +101,6 @@ class AttendanceWindow(QtWidgets.QMainWindow):
 
         for attendance in list_attendance:
             self._append_history_row(attendance)
-
-    def _refresh_classrooms(self) -> None:
-        client = MongoClientSingleton.get_client()
-        self.list_classrooms = list(client.db["classrooms"].find())
-        print(self.list_classrooms)
 
     def clear_selected_row(self) -> None:
         self._attendance_selected = None
@@ -367,7 +153,6 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.video_frame = QtWidgets.QLabel()
         self.video_frame.setObjectName("videoFrame")
         self.video_frame.setAlignment(QtCore.Qt.AlignCenter)
-        # self.video_frame.setScaledContents(True)
         panel_layout.addWidget(self.video_frame, stretch=1)
 
         status_box = QtWidgets.QFrame()
@@ -401,21 +186,11 @@ class AttendanceWindow(QtWidgets.QMainWindow):
     def _import_data(self) -> None:
         print("Importing data...")
         self.load_params()
-        self._recognition.build_face(
-            on_complete=lambda msg: qt_invoke(lambda: self.status_label.setText(msg))
-        )
+        self._svc.build_face()
 
     def _check_things(self) -> None:
         print("Checking things...")
-        for track_id, tracker in self._trackid_to_name.items():
-            print(f"Track ID: {track_id}")
-            print(
-                f'total frames: {len(tracker["frames"])}, '
-                f'name: {tracker.get("name", "--")}, '
-                f'area: {tracker.get("area", 0)}, '
-                f'score: {tracker.get("score", 0)}, '
-                f'student: {tracker.get("student", "--")}'
-            )
+        self._svc.dump_tracks()
 
     def _build_info_panel(self) -> QtWidgets.QWidget:
         panel = QtWidgets.QGroupBox()
@@ -518,6 +293,14 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.history_table.setItem(row, 3, QtWidgets.QTableWidgetItem(f"{record.score:.2f}"))
         self.history_table.scrollToTop()
 
+    def _on_new_attendance(self, record: Attendance) -> None:
+        self._update_attendance_panel(record)
+        self._append_history_row(record)
+        
+    def _on_video_end(self) -> None:
+        qt_invoke(lambda: self._stop_capture())
+        QtWidgets.QMessageBox.information(self, "Thông báo", "Video đã kết thúc.")
+
     # ==================================================================
     # Update student dialog
     # ==================================================================
@@ -527,14 +310,13 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, "Thiếu dữ liệu", "Chưa chọn học sinh để cập nhật.")
             return
 
-
         student = None
         student_id = self._attendance_selected.student_id
         if student_id is not None:
             try:
                 if not isinstance(student_id, ObjectId):
                     student_id = ObjectId(str(student_id))
-                student = self._student_repo.get(student_id)
+                student = self._svc.student_repo.get(student_id)
             except Exception:
                 student_id = None
 
@@ -543,7 +325,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             attendance=self._attendance_selected,
             student=student,
             student_id=student_id,
-            classrooms=self.list_classrooms,
+            classrooms=self._svc.list_classrooms,
             avatar_dir=AVATAR_DIR,
             checkin_dir=CHECKIN_DIR,
         )
@@ -551,7 +333,7 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             return
 
         # A new classroom may have been created inside the dialog
-        self._refresh_classrooms()
+        self._svc.refresh_classrooms()
 
         if result.selected_student_id is not None:
             student_id = result.selected_student_id
@@ -562,19 +344,19 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 name=result.new_name,
                 class_id=result.new_class_id,
             )
-            student_id = self._student_repo.insert(student)
+            student_id = self._svc.student_repo.insert(student)
             os.makedirs(AVATAR_DIR, exist_ok=True)
             if result.attendance_avatar_pixmap is not None:
                 result.attendance_avatar_pixmap.save(
                     os.path.join(AVATAR_DIR, f"{student_id}.jpg")
                 )
         else:
-            self._student_repo.update(student_id, {
+            self._svc.student_repo.update(student_id, {
                 "name": result.new_name,
                 "class_id": result.new_class_id,
             })
 
-        self._attendance_repo.update(self._attendance_selected.id, {
+        self._svc.attendance_repo.update(self._attendance_selected.id, {
             "student_id": student_id,
             "student_name": result.new_name,
             "student_classroom": result.class_name,
@@ -595,17 +377,17 @@ class AttendanceWindow(QtWidgets.QMainWindow):
             self.history_table.item(self._attendance_selected_row, 1).setText(result.new_name)
 
     # ==================================================================
-    # Capture / Video
+    # Capture / Video  (delegate to AttendanceService)
     # ==================================================================
 
     def _toggle_capture(self) -> None:
-        if self._running:
+        if self._svc.is_running:
             qt_invoke(self._stop_capture)
         else:
             qt_invoke(self._start_capture)
 
     def _start_capture(self) -> None:
-        if self._running:
+        if self._svc.is_running:
             return
 
         source: int | str = 0
@@ -616,366 +398,27 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 return
         elif self.source_combo.currentText() == "Video File":
             source = VIDEO
-        if source == 0:
-            try:
-                temp_cap = cv2.VideoCapture(0)
-                if temp_cap.isOpened():
-                    temp_cap.release()
-            except Exception as e:
-                print(f"Error opening camera {0}: {e}")
-        backend = cv2.CAP_ANY if source == 0 else cv2.CAP_FFMPEG
-        self._capture = cv2.VideoCapture(source, backend)
-        if source != 0 :
-            self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        if not self._capture.isOpened():
+        if not self._svc.start_capture(source, self.source_combo.currentText()):
             QtWidgets.QMessageBox.critical(self, "Lỗi", "Không mở được nguồn video.")
             return
-        print(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH), self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT),self._capture.get(cv2.CAP_PROP_FPS))
-        self._Frame_FPS = self._capture.get(cv2.CAP_PROP_FPS)
-        if self._Frame_FPS <= 0 or self._Frame_FPS > 100:
-            self._Frame_FPS = 25
-        self._running = True
+
+        self._Frame_FPS = self._svc.frame_fps
         self.open_btn.setText("Kết thúc")
-
-        self._latest_faces: list = []
-
-        self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
-        self._capture_thread.start()
-
-        self._detect_thread = threading.Thread(target=self._detect_worker, daemon=True)
-        self._detect_thread.start()
-
-        # Start streaming
-        fps = self._Frame_FPS or 25
-        self._streaming.start(fps, lambda: self._running)
         self._timer.start()
 
     def _toggle_streaming(self, enabled: bool) -> None:
-        fps = getattr(self, "_Frame_FPS", None) or 25
-        self._streaming.toggle(enabled, fps, lambda: self._running)
+        self._svc.toggle_streaming(enabled)
 
     def _stop_capture(self) -> None:
-        if not self._running and self._capture is None:
-            return
-
-        self._running = False
+        self._svc.stop_capture()
         self.open_btn.setText("Bắt đầu")
         self._timer.stop()
-
-        for thread in (self._capture_thread, self._detect_thread):
-            if thread is not None and thread.is_alive():
-                thread.join(timeout=1)
-
-        self._streaming.stop()
-        self._release_capture()
-
-    def _release_capture(self) -> None:
-        if self._capture is None:
-            return
-
-        try:
-            if self._capture.isOpened():
-                self._capture.release()
-        except cv2.error:
-            pass
-        finally:
-            self._capture = None
-
-        try:
-            if hasattr(self._tracker, "release"):
-                self._tracker.release()
-        except Exception:
-            pass
-
         self.video_frame.clear()
 
-    def _capture_loop(self) -> None:
-        self.frame_count = 0
-        while self._running and self._capture is not None:
-            try:
-                ret, frame = self._capture.read()
-                self.frame_count += 1
-                if self.frame_count > 1000:
-                    self.frame_count = 0
-            except cv2.error:
-                self._stop_capture()
-                break
-            if not ret:
-                time.sleep(0.01)
-                if self.source_combo.currentText() == "Video File":
-                    qt_invoke(self._stop_capture, 500)
-                    break
-                continue
-
-            if self.source_combo.currentText() == "Webcam":
-                frame = cv2.flip(frame, 1)
-                
-            # frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-
-            with self._frame_lock:
-                self._latest_frame = frame
-                
-            if self.source_combo.currentText() == "Video File":
-                time.sleep(1 / (self._Frame_FPS or 25))
-            # time.sleep(1 / 25)
-
-        self._running = False
-
-
-    def get_iou(self, bb1, bb2):
-        # bb = [x1, y1, x2, y2]
-        x_left = max(bb1[0], bb2[0])
-        y_top = max(bb1[1], bb2[1])
-        x_right = min(bb1[2], bb2[2])
-        y_bottom = min(bb1[3], bb2[3])
-
-        if x_right < x_left or y_bottom < y_top:
-            return 0.0
-        intersection_area = (x_right - x_left) * (y_bottom - y_top)
-        bb1_area = (bb1[2] - bb1[0]) * (bb1[3] - bb1[1])
-        bb2_area = (bb2[2] - bb2[0]) * (bb2[3] - bb2[1])
-        return intersection_area / float(bb1_area + bb2_area - intersection_area)
-    
     # ==================================================================
-    # Detection worker
+    # Attendance panel (Qt-specific rendering)
     # ==================================================================
-
-    def _detect_worker(self) -> None:
-        trackid_saved_known: set = set()
-        self.detect_frame_count = 0
-        last_frame_count = None
-        while self._running:
-            with self._frame_lock:
-                if self._latest_frame is None:
-                    time.sleep(0.01) 
-                    continue
-                
-                frame_copy = self._latest_frame.copy()
-                frame_count = self.frame_count
-                
-            if last_frame_count == frame_count:
-                # print(f"Skipping frame {frame_count}")
-                time.sleep(0.01)
-                continue
-            last_frame_count = frame_count
-            # Tính thời gian detect
-            # start_time = time.time()
-            self.detect_frame_count += 1
-            if self.detect_frame_count > 1000:
-                self.detect_frame_count = 0
-            # print(f"Processing frame {self.detect_frame_count}")
-
-            # with self._frame_lock:
-            #     frame_copy = self._latest_frame.copy()
-            # rgb = frame_copy
-            try:
-                start_time = time.time()
-                faces = self._recognition.face_app.get(frame_copy)
-                end_time = time.time()
-                self.current_detect_time = end_time - start_time
-                self.current_faces = len(faces)
-                # print(f"Face detection time: {end_time - start_time:.2f} seconds for {len(faces)} faces")
-            except Exception as e:
-                print(f"Error during face detection: {e}")
-                continue
-            rects: list = []
-            embeddings: list = []
-            confidences = []
-
-            for face in faces:
-                x1, y1, x2, y2 = face.bbox.astype(int)
-
-                area = (x2 - x1) * (y2 - y1)
-                if area < MIN_BBOX_AREA:
-                    continue
-                frame_crop = frame_copy[
-                    max(y1 - int((abs(y1 - y2)) * 0.2), 0):max(y2 + int((abs(y1 - y2)) * 0.2), 0),
-                    max(x1 - int((abs(x1 - x2)) * 0.2), 0):max(x2 + int((abs(x1 - x2)) * 0.2), 0),
-                ]
-                mask_label, mask_conf = self._recognition.check_mask(frame_crop)
-                if mask_label == "Mask":
-                    continue
-
-                rects.append([x1, y1, x2, y2])
-                embeddings.append(face.normed_embedding)
-                confidences.append(face.det_score)
-                # print(f"Mask detection: {mask_label} ({mask_conf:.2f})",face.crop)
-            # print(f"Processed {len(embeddings)} faces valid")
-            self.current_faces_valid = len(embeddings)
-
-            
-            
-            tracks = self._tracker.update(rects, classId="face")
-            rects2: list = []
-            # frame = frame_copy.copy()
-            # raw_frame = frame_copy.copy()
-            # start_time = time.time()
-            used_rect_indices = set()
-            for track in tracks:
-                x1, y1, x2, y2, track_id, _ = track
-
-                matched_embedding = None
-                best_iou = 0
-                best_rect_idx = -1
-                for i, (rect, emb, conf) in enumerate(zip(rects, embeddings, confidences)):
-                    # rx1, ry1, rx2, ry2 = rect
-                    if i in used_rect_indices:
-                        continue
-                    iou = self.get_iou([x1, y1, x2, y2], rect)
-                    if iou > 0.5 and iou > best_iou: # Ngưỡng 0.5 là an toàn
-                        best_iou = iou
-                        best_rect_idx = i
-                        matched_embedding = (emb, rect, conf)
-
-                    # if abs(x1 - rx1) < 15 and abs(y1 - ry1) < 15:
-                    #     matched_embedding = (emb, rect, conf)
-                    #     break
-
-                if matched_embedding is None:
-                    continue
-                used_rect_indices.add(best_rect_idx)
-                if self._trackid_to_name.get(track_id) is None:
-                    # h, w = frame.shape[:2]
-                    self._trackid_to_name[track_id] = {
-                        "name": "Unknown",
-                        "score": 0.0,
-                        "student": None,
-                        "frames": [],
-                        "frame": None,
-                        "attendance_id": None,
-                        # "video_writers": cv2.VideoWriter(
-                        #     os.path.join(CHECKIN_DIR, f"tmp_video_{track_id}.mp4"),
-                        #     VIDEO_FOURCC, VIDEO_FPS, (w, h),
-                        # ),
-                    }
-                tracker = self._trackid_to_name.get(track_id)
-                # print('start recognize')
-                name, score = tracker["name"], tracker["score"]
-                tracker_frame_index = tracker.get('frame_index', 0)
-                if tracker["name"] == "Unknown" or (tracker_frame_index + 10) < frame_count or tracker_frame_index > frame_count:
-                    new_name, new_score = self._recognize(matched_embedding[0])
-                    tracker['frame_index'] = frame_count
-                    if tracker["name"] == "Unknown":
-                        tracker["name"] = new_name
-                        tracker["score"] = new_score
-                    elif new_name != "Unknown" and new_name != tracker["name"]:
-                        if new_score > (tracker["score"] + 0.05):
-                            tracker["name"] = new_name
-                            tracker["score"] = new_score
-                            tracker["frames"] = []
-                            
-                name, score = tracker["name"], tracker["score"]
-                
-                # print('end recognize')
-                
-                
-                color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
-                label = (
-                    f"ID:{track_id} - {score:.2f} - {matched_embedding[2]:.2f}"
-                    if name != "Unknown"
-                    else f"ID:{track_id} Unknown"
-                )
-                # cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-                # frame_tracker = frame_copy.copy()
-                # cv2.rectangle(frame_tracker, (x1, y1), (x2, y2), color, 2)
-
-                # tracker["video_writers"].write(frame_tracker)
-
-                # if name != "Unknown":
-                #     if track_id not in trackid_saved_known:
-                #         trackid_saved_known.add(track_id)
-
-                #         findStudent = self._student_repo.find({"_id": ObjectId(name)})
-                #         if len(findStudent) > 0:
-                #             student = findStudent[0]
-                #             tracker["student"] = student
-                #             label = f"ID:{track_id} {student.name} {score:.2f}"
-
-                #             findStudent = self._attendance_repo.find({
-                #                 "student_id": student.id,
-                #                 "time": {"$gte": start_of_today_local()}
-                #             })
-                #             if len(findStudent) == 0:
-                #                 tracker["attendance_id"] = self._register_attendance(
-                #                     student, score, frame_copy, (x1, y1, x2, y2),
-                #                 )
-                #     else:
-                #         student = tracker.get("student")
-                #         if student is not None:
-                #             label = f"ID:{track_id} {student.name} {score:.2f}"
-
-                # if os.path.exists(FONT_PATH):
-                #     frame = cv2_putText_utf8(frame, label, (x1, y1 - 40), FONT_PATH, 30, color)
-                # else:
-                #     cv2.putText(frame, label, (x1, y1 - 10),
-                #                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-
-                if frame_copy is not None:
-                    face_crop_avatar = frame_copy[
-                        max(y1 - int((abs(y1 - y2)) * 0.2), 0):max(y2 + int((abs(y1 - y2)) * 0.2), 0),
-                        max(x1 - int((abs(x1 - x2)) * 0.2), 0):max(x2 + int((abs(x1 - x2)) * 0.2), 0),
-                    ]
-                    
-                    # is_blur, variance = check_blur_laplacian(face_crop_avatar)
-                    # print(f"Track ID: {track_id}, Blur: {is_blur}, Variance: {variance}, Area: {face_crop_avatar.shape[0] * face_crop_avatar.shape[1]}")   
-                    is_blur = False
-                    detect_score = matched_embedding[2]
-                    if not is_blur:
-                        if not any(self.detect_frame_count is c for _, c, f, e in tracker["frames"]):
-                            # Kiểm tra nếu frame này chưa được thêm vào tracker["frames"]
-                            tracker["frames"].append((detect_score, self.detect_frame_count, face_crop_avatar, matched_embedding[0]))
-                            
-                        if detect_score > tracker.get("variance", 0):
-                            # Nếu detect_score mới lớn hơn thì cập nhật frame (Ảnh đại diện) và variance
-                            tracker["frame"] = face_crop_avatar.copy()
-                            tracker["variance"] = detect_score
-
-                tracker["frames"] = sorted(tracker["frames"], key=lambda x: x[0], reverse=True)[:15]
-                rects2.append((track_id, color, label, [x1, y1, x2, y2], matched_embedding[2]))
-            # end_time = time.time()
-            # print(f'End processing tracks, time taken: {end_time - start_time:.2f} seconds')
-            self._latest_faces = rects2, frame_copy
-            
-            # end_time = time.time()
-            # print(f"Face detection time: {end_time - start_time:.2f} seconds")
-            # time.sleep(0.1)
-
-    # ==================================================================
-    # Attendance
-    # ==================================================================
-
-    def _register_attendance(self, student: Student, score: float, frame: np.ndarray, bbox) -> Optional[ObjectId]:
-        now = time.time()
-        last_time = self._last_seen.get(student.id, 0)
-        if now - last_time < 10:
-            return None
-
-        self._last_seen[student.id] = now
-        timestamp = now_local()
-
-        face_crop = frame[
-            max(bbox[1] - int((abs(bbox[1] - bbox[3])) * 0.2), 0):max(bbox[3] + int((abs(bbox[1] - bbox[3])) * 0.2), 0),
-            max(bbox[0] - int((abs(bbox[0] - bbox[2])) * 0.2), 0):max(bbox[2] + int((abs(bbox[0] - bbox[2])) * 0.2), 0),
-        ]
-
-        find_class = next((c for c in self.list_classrooms if c["_id"] == student.class_id), None)
-        print(find_class)
-        record = Attendance(
-            student_id=student.id,
-            student_name=student.name,
-            student_classroom=find_class["name"] if find_class else "",
-            time=timestamp,
-            score=score,
-        )
-
-        record.id = self._attendance_repo.insert(record)
-
-        qt_invoke(lambda: self._update_attendance_panel(record, face_crop))
-        qt_invoke(lambda: self._append_history_row(record))
-
-        return record.id
 
     def _update_attendance_panel(self, record: Attendance, face_crop: np.ndarray = None) -> None:
         self.id_value.setText(str(record.student_id))
@@ -989,13 +432,10 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.status_label.setText(status)
 
         if face_crop is None:
-            frame_path = get_attendance_frame_path(CHECKIN_DIR, record.time, record.id)
-            if frame_path and os.path.exists(frame_path):
-                face_crop = cv2.imread(os.path.normpath(frame_path))
+            face_crop = AttendanceService.load_face_crop_for_record(record)
 
         if face_crop is not None and face_crop.size > 0:
             target_size = self.avatar.size()
-
             if target_size.width() <= 0:
                 target_size = QtCore.QSize(120, self.avatar.height())
 
@@ -1010,15 +450,6 @@ class AttendanceWindow(QtWidgets.QMainWindow):
                 QtCore.Qt.KeepAspectRatio,
                 QtCore.Qt.SmoothTransformation,
             )
-
-            canvas = QtGui.QPixmap(target_size)
-            canvas.fill(QtCore.Qt.transparent)
-            painter = QtGui.QPainter(canvas)
-            x = (target_size.width() - scaled.width()) // 2
-            y = (target_size.height() - scaled.height()) // 2
-            painter.drawPixmap(x, y, scaled)
-            painter.end()
-
             self.avatar.setPixmap(scaled)
         else:
             self.avatar.clear()
@@ -1047,47 +478,15 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.student_image.setPixmap(pixmap)
 
     # ==================================================================
-    # Render
+    # Render (Qt-specific: convert cv2 frame -> QPixmap)
     # ==================================================================
 
     def _render_frame(self) -> None:
-        with self._frame_lock:
-            frame = None if self._latest_frame is None else self._latest_frame.copy()
-
+        frame = self._svc.build_annotated_frame()
         if frame is None:
             return
 
-        rects, last_frame = self._latest_faces if self._latest_faces else ([], None)
-        frame = (last_frame if last_frame is not None else frame).copy()
-        for track_id, color, label, (x1, y1, x2, y2), detect_sorce in rects:
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            
-            if os.path.exists(FONT_PATH):
-                frame = cv2_putText_utf8(frame, label, (x1, y1 - 40), FONT_PATH, 30, color)
-            else:
-                cv2.putText(frame, label, (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                
-        frame_w,frame_h = frame.shape[1], frame.shape[0]
-        frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
- 
-            
-        stats = [
-            (f'FPS: {self._Frame_FPS:.2f}', 30),
-            (f'Size: {frame_w}x{frame_h}', 60),
-            (f'Detect speed: {self.current_detect_time * 1000:.1f} ms', 90),
-            (f'Faces: {self.current_faces}', 120),
-            (f'Valid Faces: {self.current_faces_valid}', 150),
-            (f'Frame: {self.frame_count}', 180),
-            (f'Detect Frame: {self.detect_frame_count}', 210),
-        ]
-        for text, y in stats:
-            cv2.putText(frame, text, (11, y+1), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            cv2.putText(frame, text, (10, y),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-        
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
         h, w, ch = rgb.shape
         bytes_per_line = ch * w
         image = QtGui.QImage(rgb.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
@@ -1095,10 +494,6 @@ class AttendanceWindow(QtWidgets.QMainWindow):
         self.video_frame.setPixmap(pixmap.scaled(
             self.video_frame.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation
         ))
-        self._streaming.enqueue(frame.copy())
-
-    def _show_history(self) -> None:
-        self.history_table.scrollToBottom()
 
     # ==================================================================
     # Close
@@ -1106,6 +501,5 @@ class AttendanceWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         print("app closing")
-        self._stop_capture()
-        self._release_capture()
+        self._svc.close()
         event.accept()
