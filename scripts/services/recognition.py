@@ -15,7 +15,10 @@ import cv2
 import numpy as np
 from annoy import AnnoyIndex
 from insightface.app import FaceAnalysis
+from insightface.utils import face_align
 import onnxruntime as ort
+
+from scripts.config import DETECT_SIZE
 
 
 class RecognitionService:
@@ -47,6 +50,23 @@ class RecognitionService:
             providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
         )
         self.mask_input_name = self.mask_session.get_inputs()[0].name
+        
+        trt_options = {'device_id': 0,
+            'trt_max_workspace_size': 1073741824, # 1GB RAM cho việc build
+            'trt_fp16_enable': True,              # Bật FP16 để chạy nhanh trên Jetson
+            'trt_engine_cache_enable': True,      # QUAN TRỌNG: Bật để lưu file .engine
+            'trt_engine_cache_path': './trt_cache', # Thư mục sẽ chứa file .engine
+            #"trt_engine_cache_path": "/home/viettech/RUN/engine",
+        }
+        self.face_app = FaceAnalysis(
+            name="buffalo_s",
+            providers=[
+                # ("TensorrtExecutionProvider", trt_options),
+                "CUDAExecutionProvider",
+            ],
+            allowed_modules=["detection", "recognition"],
+        )
+        self.face_app.prepare(ctx_id=0, det_thresh=0.5, det_size=DETECT_SIZE)
 
     # ------------------------------------------------------------------
     # Loading
@@ -60,21 +80,7 @@ class RecognitionService:
         ).start()
 
     def _init_recognition(self, status_callback: Callable[[str], None]) -> None:
-        trt_options = {
-            "device_id": "0",
-            "trt_fp16_enable": True,
-            "trt_engine_cache_enable": True,
-            "trt_engine_cache_path": "/home/viettech/RUN/engine",
-        }
-        self.face_app = FaceAnalysis(
-            name="buffalo_l",
-            providers=[
-                ("TensorrtExecutionProvider", trt_options),
-                "CUDAExecutionProvider",
-            ],
-            allowed_modules=["detection", "recognition"],
-        )
-        self.face_app.prepare(ctx_id=0, det_thresh=0.5, det_size=(768, 768))
+
 
         if os.path.exists(self.annoy_index_path) and os.path.exists(self.mapping_path):
             self.annoy_index = AnnoyIndex(self.embedding_dim, "angular")
@@ -91,6 +97,83 @@ class RecognitionService:
         print(message)
         status_callback(message)
 
+    def get_letterbox_params(self, orig_h, orig_w):
+        tw, th = DETECT_SIZE
+        scale = min(tw / orig_w, th / orig_h)
+        new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+        
+        # Tính toán phần viền đen để căn giữa (offset)
+        offset_x = (tw - new_w) // 2
+        offset_y = (th - new_h) // 2
+        
+        return scale, offset_x, offset_y
+    def letterbox(self, img):
+        h, w = img.shape[:2]
+        scale, ox, oy = self.get_letterbox_params(h, w)
+        
+        resized = cv2.resize(img, (int(w * scale), int(h * scale)))
+        canvas = np.full((DETECT_SIZE[1], DETECT_SIZE[0], 3), 128, dtype=np.uint8) # Màu xám trung tính
+        canvas[oy:oy + resized.shape[0], ox:ox + resized.shape[1]] = resized
+        
+        return canvas
+    def map_to_original(self, coords, scale, ox, oy):
+        # coords có shape (5, 2) cho kps hoặc (n,) cho bbox
+        # Chúng ta biến ox, oy thành một mảng có hình dạng tương ứng
+        offset = np.array([ox, oy])
+        
+        # Ép kiểu coords về numpy để tính toán nếu nó chưa phải
+        coords = np.array(coords)
+        
+        # Phép toán: (Tọa độ - Offset) / Scale
+        # Numpy sẽ tự hiểu và trừ ox cho cột 0, oy cho cột 1
+        return (coords - offset) / scale
+    def get_embeddings(self, frame_4k):
+        # Bước 1: Tạo ảnh nhỏ để Detect (giảm tải GPU)
+        h_orig, w_orig = frame_4k.shape[:2]
+        input_size = DETECT_SIZE
+        frame_small = self.letterbox(frame_4k)
+        scale, ox, oy = self.get_letterbox_params(h_orig, w_orig)
+        # Tính tỉ lệ để map ngược lại ảnh 4K
+        # sw, sh = input_size
+        # rx, ry = w_orig / sw, h_orig / sh
+
+        # Bước 2: Chỉ thực hiện DETECT trên ảnh nhỏ
+        # Chúng ta dùng app.models['detection'] trực tiếp để tránh chạy nhận diện toàn bộ ảnh nhỏ
+        bboxes, kpss = self.face_app.models['detection'].detect(frame_small)
+        
+        results = []
+        if bboxes.shape[0] > 0:
+            for i in range(bboxes.shape[0]):
+                # Bước 3: Map tọa độ Box và Keypoints về 4K
+                kps_4k = self.map_to_original(kpss[i], scale, ox, oy)
+                x1_sm, y1_sm, x2_sm, y2_sm, score = bboxes[i]
+        
+                # 2. Ánh xạ ngược về tọa độ 4K
+                # Công thức: (Tọa độ ảnh nhỏ - phần bù viền đen) / tỉ lệ scale
+                x1_4k = (x1_sm - ox) / scale
+                y1_4k = (y1_sm - oy) / scale
+                x2_4k = (x2_sm - ox) / scale
+                y2_4k = (y2_sm - oy) / scale
+                
+                bbox_4k = [int(x1_4k), int(y1_4k), int(x2_4k), int(y2_4k)]
+                
+                # Bước 4: Cắt (Crop) và Căn chỉnh (Align) từ ảnh 4K gốc
+                # Đây là bước chốt để có normed_embedding chính xác nhất
+                # InsightFace dùng 5 điểm landmark (kps) để xoay mặt thẳng lại
+                face_aimg = face_align.norm_crop(frame_4k, kps_4k)
+                
+                # Bước 5: Trích xuất Embedding từ vùng ảnh nét nhất
+                feat = self.face_app.models['recognition'].get_feat(face_aimg)
+                normed_embedding = feat / np.linalg.norm(feat)
+                
+                results.append({
+                    'bbox': bbox_4k,
+                    'normed_embedding': normed_embedding, # Dùng cái này đưa vào AnnoyIndex
+                    'aligned_face': face_aimg,     # Có thể dùng để hiển thị thumbnail
+                    "det_score": score
+                })
+                
+        return results
     # ------------------------------------------------------------------
     # Build / rebuild index
     # ------------------------------------------------------------------

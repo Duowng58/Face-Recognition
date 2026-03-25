@@ -38,7 +38,8 @@ VIDEO_FPS = 15
 VIDEO_FOURCC = cv2.VideoWriter_fourcc(*"mp4v")
 
 # ── network ───────────────────────────────────────────────────
-DEFAULT_RTSP_URL = "rtsp://admin:Ancovn12@192.168.1.231:554/Streaming/Channels/201/video"
+# DEFAULT_RTSP_URL = "rtsp://admin:Ancovn12@192.168.1.231:554/Streaming/Channels/201/video"
+DEFAULT_RTSP_URL = "rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101"
 DEFAULT_RTMP_URL = "rtmp://124.158.7.217:5001/LiveStream/detect_01"
 VIDEO = os.path.normpath(os.path.join(ROOT_DIR, "assets/videos/record-2026-03-24-06-56-53.mkv"))
 
@@ -48,3 +49,5 @@ FONT_PATH = os.path.join(ROOT_DIR, "assets", "fonts", "Arial.ttf")
 # ── frame dimensions ──────────────────────────────────────────
 FRAME_WIDTH = 1344
 FRAME_HEIGHT = 768
+
+DETECT_SIZE = (640, 640)

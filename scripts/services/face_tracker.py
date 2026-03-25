@@ -135,7 +135,7 @@ class Tracker:
 
     def __init__(
         self,
-        max_disappeared: int = 50,
+        max_disappeared: int = 20,
         base_dist_thresh: float = 400,
         iou_weight: float = 0.5,
         dist_weight: float = 0.5,

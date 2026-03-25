@@ -31,8 +31,6 @@ from scripts.config import (
     AVATAR_DIR,
     CHECKIN_DIR,
     DEFAULT_RTSP_URL,
-    FRAME_HEIGHT,
-    FRAME_WIDTH,
     VIDEO,
 )
 from scripts.services.attendance import AttendanceService

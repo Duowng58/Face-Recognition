@@ -352,7 +352,8 @@ class AttendanceService:
             # ── face detection ──
             try:
                 t0 = time.time()
-                faces = self.recognition.face_app.get(frame_copy)
+                # faces = self.recognition.face_app.get(frame_copy)
+                faces = self.recognition.get_embeddings(frame_copy)
                 self.current_detect_time = time.time() - t0
                 self.current_faces = len(faces)
             except Exception as e:
@@ -364,19 +365,20 @@ class AttendanceService:
             confidences: list = []
 
             for face in faces:
-                x1, y1, x2, y2 = face.bbox.astype(int)
+                # print(face)
+                x1, y1, x2, y2 = face['bbox']
                 area = (x2 - x1) * (y2 - y1)
-                if area < MIN_BBOX_AREA:
-                    continue
+                # if area < MIN_BBOX_AREA:
+                #     continue
 
-                face_crop = crop_face_padded(frame_copy, x1, y1, x2, y2)
-                mask_label, mask_conf = self.recognition.check_mask(face_crop)
-                if mask_label == "Mask":
-                    continue
+                # face_crop = crop_face_padded(frame_copy, x1, y1, x2, y2)
+                # mask_label, mask_conf = self.recognition.check_mask(face_crop)
+                # if mask_label == "Mask":
+                #     continue
 
                 rects.append([x1, y1, x2, y2])
-                embeddings.append(face.normed_embedding)
-                confidences.append(face.det_score)
+                embeddings.append(face['normed_embedding'])
+                confidences.append(face['det_score'])
 
             self.current_faces_valid = len(embeddings)
 
