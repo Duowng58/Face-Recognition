@@ -15,17 +15,35 @@ Press Ctrl+C to stop.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import signal
 import sys
 import threading
 import time
+import traceback
 
 # ── Ensure project root is on sys.path ──
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.normpath(os.path.join(_THIS_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
+
+# ── Logging setup ────────────────────────────────────────────
+LOG_DIR = os.path.join(_PROJECT_ROOT, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, f"console_{time.strftime('%Y-%m-%d')}.log")
+
+logging.basicConfig(
+    level=logging.ERROR,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+    ],
+)
+log = logging.getLogger("app_none_gui")
 
 # Import scripts first (loads onnxruntime before any Qt/GUI libs)
 from scripts.config import DEFAULT_RTSP_URL, VIDEO
@@ -71,20 +89,23 @@ def _resolve_source(raw: str) -> tuple:
 # ─────────────────────────────────────────────────────────────
 
 def _on_status(msg: str) -> None:
-    print(f"[STATUS] {msg}")
+    log.info("[STATUS] %s", msg)
 
 
 def _on_attendance(record) -> None:
-    name = record.student_name or "Unknown"
-    classroom = getattr(record, "student_classroom", "") or ""
-    score = getattr(record, "score", 0) or 0
-    t = getattr(record, "time", None)
-    time_str = t.strftime("%H:%M:%S") if t else "--:--:--"
-    line = f"  {name}"
-    if classroom:
-        line += f"  |  {classroom}"
-    line += f"  |  score={score:.2f}  |  {time_str}"
-    print(f"[ATTENDANCE] {line}")
+    try:
+        name = record.student_name or "Unknown"
+        classroom = getattr(record, "student_classroom", "") or ""
+        score = getattr(record, "score", 0) or 0
+        t = getattr(record, "time", None)
+        time_str = t.strftime("%H:%M:%S") if t else "--:--:--"
+        line = f"  {name}"
+        if classroom:
+            line += f"  |  {classroom}"
+        line += f"  |  score={score:.2f}  |  {time_str}"
+        log.info("[ATTENDANCE] %s", line)
+    except Exception:
+        log.exception("Error in _on_attendance callback")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -123,8 +144,19 @@ def main() -> None:
 
     source, source_type = _resolve_source(args.source)
 
+    log.info("=" * 60)
+    log.info("Console attendance app starting")
+    log.info("Source: %s  Type: %s", source, source_type)
+    log.info("Preview: %s  Stream: %s", args.preview, args.stream)
+    log.info("Log file: %s", LOG_FILE)
+    log.info("=" * 60)
+
     # ── Create service ────────────────────────────────────────
-    svc = AttendanceService()
+    try:
+        svc = AttendanceService()
+    except Exception:
+        log.exception("Failed to create AttendanceService")
+        sys.exit(1)
 
     # Wire callbacks
     svc.on_status = _on_status
@@ -133,7 +165,7 @@ def main() -> None:
     stop_event = threading.Event()
 
     def _on_video_end() -> None:
-        print(f"\n[INFO] Video file ended.")
+        log.info("Video file ended.")
         stop_event.set()
 
     svc.on_video_end = _on_video_end
@@ -143,76 +175,100 @@ def main() -> None:
 
     # ── Graceful shutdown on Ctrl+C / SIGTERM ─────────────────
     def _signal_handler(sig, frame):
-        print(f"\n[INFO] Caught signal {sig}, shutting down...")
+        log.info("Caught signal %s, shutting down...", sig)
         stop_event.set()
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
     # ── Load recognition assets ───────────────────────────────
-    print(f"[INFO] {_timestamp()}  Loading recognition model & index...")
-    svc.load_recognition_assets()
-
-    # if not args.no_build:
-    #     print(f"[INFO] {_timestamp()}  Building face index...")
-    #     svc.build_face()
-
-    print(f"[INFO] {_timestamp()}  Loading classroom data...")
-    svc.refresh_classrooms()
-
-    print(f"[INFO] {_timestamp()}  Loading today's attendance records...")
-    today = svc.load_today_attendance()
-    print(f"[INFO] {len(today)} attendance records loaded for today.")
-
-    # ── Start capture ─────────────────────────────────────────
-    print(f"[INFO] {_timestamp()}  Starting capture: source={source}  type={source_type}")
-    ok = svc.start_capture(source, source_type)
-    if not ok:
-        print(f"[ERROR] Cannot open source: {source}")
+    try:
+        log.info("Loading recognition model & index...")
+        svc.load_recognition_assets()
+    except Exception:
+        log.exception("Failed to load recognition assets")
         svc.close()
         sys.exit(1)
 
-    print(f"[INFO] Capture started.  FPS={svc.frame_fps:.1f}")
+    # if not args.no_build:
+    #     log.info("Building face index...")
+    #     svc.build_face()
+
+    try:
+        log.info("Loading classroom data...")
+        svc.refresh_classrooms()
+    except Exception:
+        log.exception("Failed to load classrooms (continuing anyway)")
+
+    try:
+        log.info("Loading today's attendance records...")
+        today = svc.load_today_attendance()
+        log.info("%d attendance records loaded for today.", len(today))
+    except Exception:
+        log.exception("Failed to load today's attendance (continuing anyway)")
+
+    # ── Start capture ─────────────────────────────────────────
+    log.info("Starting capture: source=%s  type=%s", source, source_type)
+    try:
+        ok = svc.start_capture(source, source_type)
+    except Exception:
+        log.exception("Exception while opening capture source")
+        svc.close()
+        sys.exit(1)
+
+    if not ok:
+        log.error("Cannot open source: %s", source)
+        svc.close()
+        sys.exit(1)
+
+    log.info("Capture started.  FPS=%.1f", svc.frame_fps)
 
     if args.stream:
         svc.toggle_streaming(True)
-        print(f"[INFO] RTMP streaming enabled.")
+        log.info("RTMP streaming enabled.")
 
     if args.preview:
-        print(f"[INFO] Preview window enabled. Press 'q' in the window to quit.")
+        log.info("Preview window enabled. Press 'q' in the window to quit.")
 
-    print(f"[INFO] Running... Press Ctrl+C to stop.\n")
+    log.info("Running... Press Ctrl+C to stop.\n")
 
     # ── Main loop ─────────────────────────────────────────────
     try:
         import cv2
 
         while not stop_event.is_set():
-            if args.preview:
-                frame = svc.build_annotated_frame()
-                if frame is not None:
-                    cv2.imshow("Attendance (headless preview)", frame)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q"):
-                        print("\n[INFO] 'q' pressed – stopping.")
-                        break
+            try:
+                if args.preview:
+                    frame = svc.build_annotated_frame()
+                    if frame is not None:
+                        cv2.imshow("Attendance (headless preview)", frame)
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == ord("q"):
+                            log.info("'q' pressed – stopping.")
+                            break
+                    else:
+                        time.sleep(0.02)
+                elif args.stream:
+                    # No preview but streaming – must build frames to feed RTMP
+                    frame = svc.build_annotated_frame()
+                    if frame is None:
+                        time.sleep(0.02)
                 else:
-                    time.sleep(0.02)
-            elif args.stream:
-                # No preview but streaming – must build frames to feed RTMP
-                frame = svc.build_annotated_frame()
-                if frame is None:
-                    time.sleep(0.02)
-            else:
-                # No preview, no streaming – just keep the main thread alive
-                stop_event.wait(timeout=1.0)
+                    # No preview, no streaming – just keep the main thread alive
+                    stop_event.wait(timeout=1.0)
+            except Exception:
+                log.exception("Error in main loop iteration")
+                time.sleep(0.5)  # avoid tight error loop
 
     except KeyboardInterrupt:
-        print("\n[INFO] KeyboardInterrupt – stopping.")
+        log.info("KeyboardInterrupt – stopping.")
 
     # ── Cleanup ───────────────────────────────────────────────
-    print(f"[INFO] {_timestamp()}  Shutting down...")
-    svc.close()
+    log.info("Shutting down...")
+    try:
+        svc.close()
+    except Exception:
+        log.exception("Error during service close")
 
     if args.preview:
         try:
@@ -220,8 +276,14 @@ def main() -> None:
         except Exception:
             pass
 
-    print(f"[INFO] {_timestamp()}  Done.")
+    log.info("Done.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        logging.getLogger("app_none_gui").exception("Unhandled exception in main()")
+        sys.exit(1)

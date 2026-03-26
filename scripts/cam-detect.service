@@ -1,0 +1,18 @@
+[Unit]
+Description=Python Camera Manager Service
+After=network.target mongodb.service
+
+[Service]
+# Chạy dưới quyền root hoặc user của bạn
+User=root
+WorkingDirectory=/home/viettech/RUN
+# Trỏ thẳng vào file python trong môi trường ảo (.venv)
+ExecStart=/home/viettech/RUN/.venv1/bin/python3 -m app_none_gui.main --source rtsp --stream
+# Tự động khởi động lại sau 5 giây nếu script bị crash
+Restart=always
+RestartSec=5
+# Giới hạn tài nguyên nếu cần
+MemoryLimit=512M
+
+[Install]
+WantedBy=multi-user.target

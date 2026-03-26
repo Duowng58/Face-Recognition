@@ -161,7 +161,7 @@ class AttendanceService:
         self.current_faces_valid: int = 0
         self.frame_count: int = 0
         self.detect_frame_count: int = 0
-        self._frame_fps: float = 25.0
+        self._frame_fps: float = 15.0
 
         self.list_classrooms: list = []
 
@@ -249,7 +249,7 @@ class AttendanceService:
         fps = self._capture.get(cv2.CAP_PROP_FPS)
         print(w, h, fps)
 
-        self._frame_fps = fps if 0 < fps <= 100 else 25.0
+        self._frame_fps = fps if 0 < fps <= 100 else 15.0
         self._running = True
         self._latest_faces = []
 
@@ -428,15 +428,18 @@ class AttendanceService:
         last_frame_count = None
 
         while self._running:
+            # print("[DETECT] Starting detection loop")
             with self._frame_lock:
                 if self._latest_frame is None:
                     time.sleep(1 / self._frame_fps)
+                    print("[DETECT] No frame available")
                     continue
                 frame_copy = self._latest_frame.copy()
                 frame_count = self.frame_count
 
             if last_frame_count == frame_count:
                 time.sleep(1 / self._frame_fps)
+                print("[DETECT] Frame not updated")
                 continue
             last_frame_count = frame_count
 
@@ -447,21 +450,23 @@ class AttendanceService:
             # ── face detection ──
             try:
                 t0 = time.time()
-                # faces = self.recognition.face_app.get(frame_copy)
-                faces = self.recognition.get_embeddings(frame_copy)
+                faces = self.recognition.face_app.get(frame_copy)
+                # faces = self.recognition.get_embeddings(frame_copy)
                 self.current_detect_time = time.time() - t0
                 self.current_faces = len(faces)
             except Exception as e:
                 print(f"Error during face detection: {e}")
                 continue
+            # print(f"[DETECT] Detected {len(faces)} faces")
 
             rects: list = []
             embeddings: list = []
             confidences: list = []
+            aligned_faces: list = []
 
             for face in faces:
                 # print(face)
-                x1, y1, x2, y2 = face['bbox']
+                x1, y1, x2, y2 = face.bbox.astype(int)
                 area = (x2 - x1) * (y2 - y1)
                 # if area < MIN_BBOX_AREA:
                 #     continue
@@ -472,8 +477,12 @@ class AttendanceService:
                 #     continue
 
                 rects.append([x1, y1, x2, y2])
-                embeddings.append(face['normed_embedding'])
-                confidences.append(face['det_score'])
+                embeddings.append(face.normed_embedding)
+                confidences.append(face.det_score)
+                
+                # embeddings.append(face['normed_embedding'])
+                # confidences.append(face['det_score'])
+                # aligned_faces.append(face['aligned_face'])
 
             self.current_faces_valid = len(embeddings)
 

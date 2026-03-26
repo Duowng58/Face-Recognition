@@ -51,22 +51,46 @@ class RecognitionService:
         )
         self.mask_input_name = self.mask_session.get_inputs()[0].name
         
-        trt_options = {'device_id': 0,
-            'trt_max_workspace_size': 1073741824, # 1GB RAM cho việc build
-            'trt_fp16_enable': True,              # Bật FP16 để chạy nhanh trên Jetson
-            'trt_engine_cache_enable': True,      # QUAN TRỌNG: Bật để lưu file .engine
-            'trt_engine_cache_path': './trt_cache', # Thư mục sẽ chứa file .engine
-            #"trt_engine_cache_path": "/home/viettech/RUN/engine",
+        trt_options = {
+            'device_id': 0,
+            'trt_max_workspace_size': 1 << 30,
+            'trt_fp16_enable': True,
+            'trt_engine_cache_enable': True,
+            'trt_engine_cache_path': os.path.abspath("./trt_cache"),
         }
+
         self.face_app = FaceAnalysis(
             name="buffalo_s",
+            root="./my_models",
             providers=[
-                # ("TensorrtExecutionProvider", trt_options),
+                ("TensorrtExecutionProvider", trt_options),
                 "CUDAExecutionProvider",
             ],
             allowed_modules=["detection", "recognition"],
         )
         self.face_app.prepare(ctx_id=0, det_thresh=0.5, det_size=DETECT_SIZE)
+        
+                # 2. Đọc ảnh từ file
+        img_path = "vlcsnap-2026-03-10-16h43m12s822.png" # Thay bằng đường dẫn ảnh của bạn
+        img = cv2.imread(img_path)
+        if img is None:
+            print("❌ Không tìm thấy file ảnh!")
+        else:
+            print(f"📸 Đang test ảnh: {img_path}, Size: {img.shape}, Type: {img.dtype}")
+            
+            # KHÔNG dùng .astype(float16) ở đây vì OpenCV sẽ lỗi resize
+            try:
+                # InsightFace sẽ tự xử lý chuyển màu BGR -> RGB và resize nội bộ
+                faces = self.face_app.get(img)
+                
+                print(f"✅ Thành công! Tìm thấy: {len(faces)} khuôn mặt.")
+                for i, face in enumerate(faces):
+                    print(f"  - Mặt {i+1}: Box {face.bbox.astype(int)}, Prob: {face.det_score:.2f}")
+                    if face.embedding is not None:
+                        print(f"    Vector Embedding: {face.embedding.shape}")
+                        
+            except Exception as e:
+                print(f"❌ Lỗi: {e}")
 
     # ------------------------------------------------------------------
     # Loading
@@ -139,39 +163,49 @@ class RecognitionService:
 
         # Bước 2: Chỉ thực hiện DETECT trên ảnh nhỏ
         # Chúng ta dùng app.models['detection'] trực tiếp để tránh chạy nhận diện toàn bộ ảnh nhỏ
+        print('start detect')
         bboxes, kpss = self.face_app.models['detection'].detect(frame_small)
-        
+        print('end detect')
         results = []
-        if bboxes.shape[0] > 0:
-            for i in range(bboxes.shape[0]):
-                # Bước 3: Map tọa độ Box và Keypoints về 4K
-                kps_4k = self.map_to_original(kpss[i], scale, ox, oy)
-                x1_sm, y1_sm, x2_sm, y2_sm, score = bboxes[i]
-        
-                # 2. Ánh xạ ngược về tọa độ 4K
-                # Công thức: (Tọa độ ảnh nhỏ - phần bù viền đen) / tỉ lệ scale
-                x1_4k = (x1_sm - ox) / scale
-                y1_4k = (y1_sm - oy) / scale
-                x2_4k = (x2_sm - ox) / scale
-                y2_4k = (y2_sm - oy) / scale
-                
-                bbox_4k = [int(x1_4k), int(y1_4k), int(x2_4k), int(y2_4k)]
-                
-                # Bước 4: Cắt (Crop) và Căn chỉnh (Align) từ ảnh 4K gốc
-                # Đây là bước chốt để có normed_embedding chính xác nhất
-                # InsightFace dùng 5 điểm landmark (kps) để xoay mặt thẳng lại
-                face_aimg = face_align.norm_crop(frame_4k, kps_4k)
-                
-                # Bước 5: Trích xuất Embedding từ vùng ảnh nét nhất
-                feat = self.face_app.models['recognition'].get_feat(face_aimg)
-                normed_embedding = feat / np.linalg.norm(feat)
-                
-                results.append({
-                    'bbox': bbox_4k,
-                    'normed_embedding': normed_embedding, # Dùng cái này đưa vào AnnoyIndex
-                    'aligned_face': face_aimg,     # Có thể dùng để hiển thị thumbnail
-                    "det_score": score
-                })
+        try: 
+            if bboxes.shape[0] > 0:
+                print('1')
+                for i in range(bboxes.shape[0]):
+                    print('2')
+                    # Bước 3: Map tọa độ Box và Keypoints về 4K
+                    kps_4k = self.map_to_original(kpss[i], scale, ox, oy)
+                    print('3')
+                    x1_sm, y1_sm, x2_sm, y2_sm, score = bboxes[i]
+            
+                    # 2. Ánh xạ ngược về tọa độ 4K
+                    # Công thức: (Tọa độ ảnh nhỏ - phần bù viền đen) / tỉ lệ scale
+                    x1_4k = (x1_sm - ox) / scale
+                    y1_4k = (y1_sm - oy) / scale
+                    x2_4k = (x2_sm - ox) / scale
+                    y2_4k = (y2_sm - oy) / scale
+                    
+                    bbox_4k = [int(x1_4k), int(y1_4k), int(x2_4k), int(y2_4k)]
+                    
+                    # Bước 4: Cắt (Crop) và Căn chỉnh (Align) từ ảnh 4K gốc
+                    # Đây là bước chốt để có normed_embedding chính xác nhất
+                    # InsightFace dùng 5 điểm landmark (kps) để xoay mặt thẳng lại
+                    face_aimg = face_align.norm_crop(frame_4k, kps_4k)
+                    print('4')
+                    
+                    # Bước 5: Trích xuất Embedding từ vùng ảnh nét nhất
+                    feat = self.face_app.models['recognition'].get_feat(face_aimg)
+                    normed_embedding = feat / np.linalg.norm(feat)
+                    print('5')
+                    results.append({
+                        'bbox': bbox_4k,
+                        'normed_embedding': normed_embedding, # Dùng cái này đưa vào AnnoyIndex
+                        'aligned_face': face_aimg,     # Có thể dùng để hiển thị thumbnail
+                        "det_score": score
+                    })
+                    print('6')
+        except Exception as e:
+            print(f"Error processing face {i}: {e}")
+        print(len(results))
                 
         return results
     # ------------------------------------------------------------------
