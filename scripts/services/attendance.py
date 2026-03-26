@@ -145,6 +145,8 @@ class AttendanceService:
         # ── state ─────────────────────────────────
         self._capture: Optional[cv2.VideoCapture] = None
         self._running = False
+        self._source: int | str = 0
+        self._source_type: str = "Webcam"
         self._frame_lock = threading.Lock()
         self._latest_frame: Optional[np.ndarray] = None
         self._latest_faces: list = []
@@ -233,6 +235,7 @@ class AttendanceService:
                 print(f"Error opening camera 0: {e}")
 
         backend = cv2.CAP_ANY if source == 0 else cv2.CAP_FFMPEG
+        self._source = source
         self._source_type = source_type
         self._capture = cv2.VideoCapture(source, backend)
         if source != 0:
@@ -296,30 +299,122 @@ class AttendanceService:
         except Exception:
             pass
 
+    # ------------------------------------------------------------------
+    # Auto-reconnect
+    # ------------------------------------------------------------------
+
+    _RECONNECT_DELAYS = (1, 2, 5, 10, 15, 30)  # seconds – exponential back-off
+
+    def _reconnect_capture(self) -> bool:
+        """
+        Try to re-open ``self._source`` with exponential back-off.
+
+        Returns ``True`` if reconnected successfully, ``False`` if all
+        attempts failed or ``self._running`` was set to ``False`` externally.
+        """
+        # Release the broken capture first
+        try:
+            if self._capture is not None and self._capture.isOpened():
+                self._capture.release()
+        except cv2.error:
+            pass
+        self._capture = None
+
+        for attempt, delay in enumerate(self._RECONNECT_DELAYS, 1):
+            if not self._running:
+                return False
+
+            self.on_status(
+                f"Thông báo: Mất kết nối nguồn video – thử kết nối lại "
+                f"lần {attempt}/{len(self._RECONNECT_DELAYS)} sau {delay}s..."
+            )
+            print(
+                f"[RECONNECT] Attempt {attempt}/{len(self._RECONNECT_DELAYS)} "
+                f"in {delay}s  (source={self._source})"
+            )
+            time.sleep(delay)
+
+            if not self._running:
+                return False
+
+            backend = cv2.CAP_ANY if self._source == 0 else cv2.CAP_FFMPEG
+            # cv2.CAP_GSTREAMER
+            cap = cv2.VideoCapture(self._source, backend)
+            if self._source != 0:
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            if cap.isOpened():
+                self._capture = cap
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                self._frame_fps = fps if 0 < fps <= 100 else 25.0
+                self.on_status("Thông báo: Đã kết nối lại nguồn video thành công!")
+                print("[RECONNECT] Success")
+                return True
+
+            try:
+                cap.release()
+            except cv2.error:
+                pass
+
+        self.on_status("Thông báo: Không thể kết nối lại nguồn video.")
+        print("[RECONNECT] All attempts failed")
+        return False
+
     def _capture_loop(self) -> None:
         self.frame_count = 0
-        is_video_file = False  # set by caller context; we detect via fps heuristic or flag
+        consecutive_failures = 0
+        _MAX_CONSECUTIVE_FAILURES = 30  # ~0.3s of consecutive read() failures
 
-        while self._running and self._capture is not None:
+        while self._running:
+            if self._capture is None or not self._capture.isOpened():
+                # Source lost – attempt reconnect (skip for video files)
+                if self._source_type == "Video File":
+                    self.on_video_end()
+                    break
+                if not self._reconnect_capture():
+                    break  # all retries exhausted
+                consecutive_failures = 0
+                continue
+
             try:
                 ret, frame = self._capture.read()
                 self.frame_count += 1
                 if self.frame_count > 1000:
                     self.frame_count = 0
-            except cv2.error:
-                self._running = False
-                break
-
-            if not ret:
-                time.sleep(0.01)
+            except cv2.error as e:
+                print(f"[CAPTURE] cv2 error: {e}")
                 if self._source_type == "Video File":
                     self.on_video_end()
                     break
+                # Trigger reconnect on next iteration
+                try:
+                    self._capture.release()
+                except Exception:
+                    pass
+                self._capture = None
                 continue
 
+            if not ret:
+                if self._source_type == "Video File":
+                    self.on_video_end()
+                    break
+                consecutive_failures += 1
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    print(f"[CAPTURE] {consecutive_failures} consecutive read failures – reconnecting")
+                    try:
+                        self._capture.release()
+                    except Exception:
+                        pass
+                    self._capture = None
+                    consecutive_failures = 0
+                else:
+                    time.sleep(0.01)
+                continue
+
+            consecutive_failures = 0
             with self._frame_lock:
                 self._latest_frame = frame
-            if  self._source_type == "Video File":
+            if self._source_type == "Video File":
                 time.sleep(1 / self._frame_fps)
 
         self._running = False
