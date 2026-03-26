@@ -564,6 +564,8 @@ class AttendanceService:
                 rects2.append((track_id, color, label, [x1, y1, x2, y2], detect_score))
 
             self._latest_faces = rects2, frame_copy
+            if self.current_detect_time < 0.15:
+                time.sleep(0.15 - self.current_detect_time)
 
     # ------------------------------------------------------------------
     # Tracker disappeared → attendance logic
@@ -700,12 +702,12 @@ class AttendanceService:
     def get_render_data(self) -> Tuple[Optional[np.ndarray], list]:
         """Return ``(frame_bgr, rects)`` from the latest detection pass."""
         rects, last_frame = self._latest_faces if self._latest_faces else ([], None)
-        if last_frame is None:
-            with self._frame_lock:
-                if self._latest_frame is not None:
-                    return self._latest_frame.copy(), []
-                return None, []
-        return last_frame.copy(), rects
+        if last_frame is not None:
+            return last_frame, rects
+        with self._frame_lock:
+            if self._latest_frame is not None:
+                return self._latest_frame.copy(), []
+            return None, []
 
     def build_annotated_frame(self) -> Optional[np.ndarray]:
         """Return a fully annotated + resized BGR frame ready for display."""
@@ -714,8 +716,19 @@ class AttendanceService:
             return None
 
         frame_w, frame_h = frame.shape[1], frame.shape[0]
-        frame = annotate_frame(frame, rects)
+
+        # Resize first (smaller image → faster annotate)
         frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
+
+        if rects:
+            # Scale bboxes to match resized frame
+            sx = FRAME_WIDTH / frame_w
+            sy = FRAME_HEIGHT / frame_h
+            scaled = [
+                (tid, color, label, [int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)], ds)
+                for tid, color, label, (x1, y1, x2, y2), ds in rects
+            ]
+            frame = annotate_frame(frame, scaled)
 
         stats = [
             (f"FPS: {self._frame_fps:.2f}", 30),
@@ -728,7 +741,7 @@ class AttendanceService:
         ]
         frame = annotate_frame(frame, [], stats)
 
-        self.streaming.enqueue(frame.copy())
+        self.streaming.enqueue(frame)
         return frame
 
     # ------------------------------------------------------------------

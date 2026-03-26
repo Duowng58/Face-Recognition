@@ -236,8 +236,12 @@ def main() -> None:
     try:
         import cv2
 
+        target_interval = 1.0 / max(svc.frame_fps, 1.0)
+
         while not stop_event.is_set():
             try:
+                t0 = time.perf_counter()
+
                 if args.preview:
                     frame = svc.build_annotated_frame()
                     if frame is not None:
@@ -247,15 +251,23 @@ def main() -> None:
                             log.info("'q' pressed – stopping.")
                             break
                     else:
-                        time.sleep(0.02)
+                        time.sleep(0.005)
                 elif args.stream:
                     # No preview but streaming – must build frames to feed RTMP
                     frame = svc.build_annotated_frame()
                     if frame is None:
-                        time.sleep(0.02)
+                        time.sleep(0.005)
                 else:
                     # No preview, no streaming – just keep the main thread alive
                     stop_event.wait(timeout=1.0)
+                    continue
+
+                # Pace to target FPS
+                elapsed = time.perf_counter() - t0
+                remaining = target_interval - elapsed
+                if remaining > 0:
+                    time.sleep(remaining)
+
             except Exception:
                 log.exception("Error in main loop iteration")
                 time.sleep(0.5)  # avoid tight error loop
