@@ -149,7 +149,7 @@ class PerformanceMonitor:
         self.frame_times = []
         self.build_times = []
         self.last_report_time = time.time()
-        self.report_interval = 10.0  # Report every 10 seconds
+        self.report_interval = 300.0  # Report every 5 minutes
         
     def record_frame_time(self, elapsed: float) -> None:
         """Record frame processing time"""
@@ -253,6 +253,9 @@ class MainLoop:
         
         while not self.stop_event.is_set():
             try:
+                if not self.svc.is_running:
+                    log.error("Failed to reconnect. Stopping main loop.")
+                    break
                 t0 = time.perf_counter()
                 
                 # ✅ OPTIMIZED: Handle preview and streaming efficiently
@@ -269,11 +272,11 @@ class MainLoop:
                         self.monitor.record_build_time(build_time)
                         
                         # ✅ Warn if frame building is too slow
-                        if build_time > target_interval * 0.8:
-                            log.warning(
-                                "Frame building slow: %.2fms (target: %.2fms)",
-                                build_time * 1000, target_interval * 1000
-                            )
+                        # if build_time > target_interval * 0.8:
+                        #     log.warning(
+                        #         "Frame building slow: %.2fms (target: %.2fms)",
+                        #         build_time * 1000, target_interval * 1000
+                        #     )
                     except Exception as e:
                         log.error("Error building frame: %s", e)
                         frame = None

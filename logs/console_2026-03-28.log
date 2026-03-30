@@ -1,0 +1,181 @@
+2026-03-28 13:57:31  INFO      app_none_gui  ============================================================
+2026-03-28 13:57:31  INFO      app_none_gui  Console attendance app starting
+2026-03-28 13:57:31  INFO      app_none_gui  Source: F:\Git\Face-Recognition\assets\videos\record-2026-03-25-06-51-23.mkv  Type: Video File
+2026-03-28 13:57:31  INFO      app_none_gui  Preview: False  Stream: True  FPS: 15.0
+2026-03-28 13:57:31  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 13:57:31  INFO      app_none_gui  ============================================================
+2026-03-28 13:57:32  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 13:57:32  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 13:57:32  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 13:57:32  INFO      app_none_gui  Loading classroom data...
+2026-03-28 13:57:32  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 13:57:32  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 13:57:32  INFO      app_none_gui  0 attendance records loaded for today.
+2026-03-28 13:57:32  INFO      app_none_gui  Connecting to F:\Git\Face-Recognition\assets\videos\record-2026-03-25-06-51-23.mkv (attempt 1/3)...
+2026-03-28 13:57:33  INFO      app_none_gui  ✅ Connected successfully. FPS=15.0
+2026-03-28 13:57:33  INFO      app_none_gui  RTMP streaming enabled.
+2026-03-28 13:57:33  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 13:57:33  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 13:57:42  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:42
+2026-03-28 13:57:42  INFO      app_none_gui  PERF: FPS=13.4 (avg frame time: 74.38ms, build time: 58.15ms)
+2026-03-28 13:57:47  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:47
+2026-03-28 13:57:48  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:48
+2026-03-28 13:57:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:50
+2026-03-28 13:57:52  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:52
+2026-03-28 13:57:52  INFO      app_none_gui  PERF: FPS=11.7 (avg frame time: 85.27ms, build time: 74.51ms)
+2026-03-28 13:57:53  INFO      app_none_gui  Caught signal 2, shutting down...
+2026-03-28 13:57:53  INFO      app_none_gui  Shutting down...
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  13:57:53
+2026-03-28 13:57:53  INFO      app_none_gui  Done.
+2026-03-28 13:58:00  INFO      app_none_gui  ============================================================
+2026-03-28 13:58:00  INFO      app_none_gui  Console attendance app starting
+2026-03-28 13:58:00  INFO      app_none_gui  Source: rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101  Type: RTSP
+2026-03-28 13:58:00  INFO      app_none_gui  Preview: False  Stream: True  FPS: 15.0
+2026-03-28 13:58:00  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 13:58:00  INFO      app_none_gui  ============================================================
+2026-03-28 13:58:01  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 13:58:01  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 13:58:01  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 13:58:01  INFO      app_none_gui  Loading classroom data...
+2026-03-28 13:58:01  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 13:58:01  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 13:58:01  INFO      app_none_gui  12 attendance records loaded for today.
+2026-03-28 13:58:01  INFO      app_none_gui  Connecting to rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101 (attempt 1/3)...
+2026-03-28 13:58:03  INFO      app_none_gui  ✅ Connected successfully. FPS=20.0
+2026-03-28 13:58:03  INFO      app_none_gui  RTMP streaming enabled.
+2026-03-28 13:58:03  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 13:58:03  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 13:58:11  INFO      app_none_gui  PERF: FPS=19.9 (avg frame time: 50.36ms, build time: 2.57ms)
+2026-03-28 13:58:21  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.40ms, build time: 2.33ms)
+2026-03-28 13:58:31  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.42ms, build time: 2.36ms)
+2026-03-28 13:58:32  INFO      app_none_gui  Caught signal 2, shutting down...
+2026-03-28 13:58:32  INFO      app_none_gui  Shutting down...
+2026-03-28 13:58:32  INFO      app_none_gui  Done.
+2026-03-28 13:58:38  INFO      app_none_gui  ============================================================
+2026-03-28 13:58:38  INFO      app_none_gui  Console attendance app starting
+2026-03-28 13:58:38  INFO      app_none_gui  Source: rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101  Type: RTSP
+2026-03-28 13:58:38  INFO      app_none_gui  Preview: True  Stream: False  FPS: 15.0
+2026-03-28 13:58:38  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 13:58:38  INFO      app_none_gui  ============================================================
+2026-03-28 13:58:39  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 13:58:39  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 13:58:39  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 13:58:39  INFO      app_none_gui  Loading classroom data...
+2026-03-28 13:58:39  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 13:58:39  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 13:58:39  INFO      app_none_gui  12 attendance records loaded for today.
+2026-03-28 13:58:39  INFO      app_none_gui  Connecting to rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101 (attempt 1/3)...
+2026-03-28 13:58:41  INFO      app_none_gui  ✅ Connected successfully. FPS=20.0
+2026-03-28 13:58:41  INFO      app_none_gui  Preview window enabled. Press 'q' in the window to quit.
+2026-03-28 13:58:41  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 13:58:41  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 13:58:49  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.39ms, build time: 2.55ms)
+2026-03-28 13:58:59  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.46ms, build time: 2.23ms)
+2026-03-28 13:59:03  INFO      app_none_gui  'q' pressed – stopping.
+2026-03-28 13:59:03  INFO      app_none_gui  Shutting down...
+2026-03-28 13:59:03  INFO      app_none_gui  Done.
+2026-03-28 14:01:40  INFO      app_none_gui  ============================================================
+2026-03-28 14:01:40  INFO      app_none_gui  Console attendance app starting
+2026-03-28 14:01:40  INFO      app_none_gui  Source: rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101  Type: RTSP
+2026-03-28 14:01:40  INFO      app_none_gui  Preview: True  Stream: False  FPS: 15.0
+2026-03-28 14:01:40  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 14:01:40  INFO      app_none_gui  ============================================================
+2026-03-28 14:01:41  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 14:01:41  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:01:41  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:01:41  INFO      app_none_gui  Loading classroom data...
+2026-03-28 14:01:41  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 14:01:41  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 14:01:41  INFO      app_none_gui  12 attendance records loaded for today.
+2026-03-28 14:01:41  INFO      app_none_gui  Connecting to rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101 (attempt 1/3)...
+2026-03-28 14:01:43  INFO      app_none_gui  ✅ Connected successfully. FPS=20.0
+2026-03-28 14:01:43  INFO      app_none_gui  Preview window enabled. Press 'q' in the window to quit.
+2026-03-28 14:01:43  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 14:01:43  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 14:01:51  INFO      app_none_gui  PERF: FPS=19.9 (avg frame time: 50.21ms, build time: 2.35ms)
+2026-03-28 14:02:01  INFO      app_none_gui  PERF: FPS=19.9 (avg frame time: 50.27ms, build time: 3.49ms)
+2026-03-28 14:02:11  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.45ms, build time: 2.39ms)
+2026-03-28 14:02:14  INFO      app_none_gui  'q' pressed – stopping.
+2026-03-28 14:02:14  INFO      app_none_gui  Shutting down...
+2026-03-28 14:02:14  INFO      app_none_gui  Done.
+2026-03-28 14:02:24  INFO      app_none_gui  ============================================================
+2026-03-28 14:02:24  INFO      app_none_gui  Console attendance app starting
+2026-03-28 14:02:24  INFO      app_none_gui  Source: rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101  Type: RTSP
+2026-03-28 14:02:24  INFO      app_none_gui  Preview: True  Stream: False  FPS: 15.0
+2026-03-28 14:02:24  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 14:02:24  INFO      app_none_gui  ============================================================
+2026-03-28 14:02:25  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 14:02:25  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:02:25  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:02:25  INFO      app_none_gui  Loading classroom data...
+2026-03-28 14:02:25  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 14:02:25  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 14:02:25  INFO      app_none_gui  12 attendance records loaded for today.
+2026-03-28 14:02:25  INFO      app_none_gui  Connecting to rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101 (attempt 1/3)...
+2026-03-28 14:02:27  INFO      app_none_gui  ✅ Connected successfully. FPS=20.0
+2026-03-28 14:02:27  INFO      app_none_gui  Preview window enabled. Press 'q' in the window to quit.
+2026-03-28 14:02:27  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 14:02:27  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 14:02:35  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.38ms, build time: 2.46ms)
+2026-03-28 14:02:45  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.41ms, build time: 2.36ms)
+2026-03-28 14:02:55  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.50ms, build time: 2.35ms)
+2026-03-28 14:03:00  INFO      app_none_gui  'q' pressed – stopping.
+2026-03-28 14:03:00  INFO      app_none_gui  Shutting down...
+2026-03-28 14:03:00  INFO      app_none_gui  Done.
+2026-03-28 14:04:11  INFO      app_none_gui  ============================================================
+2026-03-28 14:04:11  INFO      app_none_gui  Console attendance app starting
+2026-03-28 14:04:11  INFO      app_none_gui  Source: rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101  Type: RTSP
+2026-03-28 14:04:11  INFO      app_none_gui  Preview: True  Stream: False  FPS: 15.0
+2026-03-28 14:04:11  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 14:04:11  INFO      app_none_gui  ============================================================
+2026-03-28 14:04:12  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 14:04:12  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:04:12  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:04:12  INFO      app_none_gui  Loading classroom data...
+2026-03-28 14:04:12  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 14:04:12  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 14:04:12  INFO      app_none_gui  12 attendance records loaded for today.
+2026-03-28 14:04:12  INFO      app_none_gui  Connecting to rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101 (attempt 1/3)...
+2026-03-28 14:04:13  INFO      app_none_gui  ✅ Connected successfully. FPS=20.0
+2026-03-28 14:04:13  INFO      app_none_gui  Preview window enabled. Press 'q' in the window to quit.
+2026-03-28 14:04:13  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 14:04:13  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 14:04:22  INFO      app_none_gui  PERF: FPS=19.8 (avg frame time: 50.38ms, build time: 2.51ms)
+2026-03-28 14:04:32  INFO      app_none_gui  PERF: FPS=19.9 (avg frame time: 50.37ms, build time: 2.28ms)
+2026-03-28 14:04:34  INFO      app_none_gui  'q' pressed – stopping.
+2026-03-28 14:04:34  INFO      app_none_gui  Shutting down...
+2026-03-28 14:04:35  INFO      app_none_gui  Done.
+2026-03-28 14:22:35  INFO      app_none_gui  ============================================================
+2026-03-28 14:22:35  INFO      app_none_gui  Console attendance app starting
+2026-03-28 14:22:35  INFO      app_none_gui  Source: rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101  Type: RTSP
+2026-03-28 14:22:35  INFO      app_none_gui  Preview: True  Stream: False  FPS: 15.0
+2026-03-28 14:22:35  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-28.log
+2026-03-28 14:22:35  INFO      app_none_gui  ============================================================
+2026-03-28 14:22:36  INFO      app_none_gui  Loading recognition model & index...
+2026-03-28 14:22:36  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:22:36  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-28 14:22:36  INFO      app_none_gui  Loading classroom data...
+2026-03-28 14:22:36  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-28 14:22:36  INFO      app_none_gui  Loading today's attendance records...
+2026-03-28 14:22:36  INFO      app_none_gui  12 attendance records loaded for today.
+2026-03-28 14:22:36  INFO      app_none_gui  Connecting to rtsp://admin:Ancovn12@27.71.225.6:4401/Streaming/Channels/101 (attempt 1/3)...
+2026-03-28 14:22:38  INFO      app_none_gui  ✅ Connected successfully. FPS=20.0
+2026-03-28 14:22:38  INFO      app_none_gui  Preview window enabled. Press 'q' in the window to quit.
+2026-03-28 14:22:38  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-28 14:22:38  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-28 14:22:45  INFO      app_none_gui  'q' pressed – stopping.
+2026-03-28 14:22:45  INFO      app_none_gui  Shutting down...
+2026-03-28 14:22:45  INFO      app_none_gui  Done.

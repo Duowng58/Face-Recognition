@@ -21,6 +21,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import cv2
 import numpy as np
 from bson import ObjectId
+import datetime
+import re
 
 from scripts.config import (
     ANNOY_INDEX_PATH,
@@ -225,6 +227,7 @@ class AttendanceService:
         """
         if self._running:
             return True
+        
 
         if source == 0:
             try:
@@ -237,10 +240,25 @@ class AttendanceService:
         backend = cv2.CAP_ANY if source == 0 else cv2.CAP_FFMPEG
         self._source = source
         self._source_type = source_type
-        self._capture = cv2.VideoCapture(source, backend)
+        if source_type == 'rtsp':
+            pipeline = (
+                f"rtspsrc location={source} latency=100 ! rtph264depay ! h264parse ! "
+                f"nvv4l2decoder ! nvvidconv ! video/x-raw, format=BGRx ! "
+                f"videoconvert ! video/x-raw, format=BGR ! appsink drop=true max-buffers=1"
+            )
+            self._capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        else:
+            self._capture = cv2.VideoCapture(source, backend)
         if source != 0:
-            self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
+            try:
+                match = re.search(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})', source)
+                if match:
+                    time_str = match.group(1)
+                    start_time = datetime.datetime.strptime(time_str, "%Y-%m-%d-%H-%M-%S")
+            except Exception as e:
+                print("Error parsing video start time: %s", e)
+                start_time = datetime.datetime.now()
+            self._video_begin_time = start_time
         if not self._capture.isOpened():
             return False
 
@@ -337,11 +355,18 @@ class AttendanceService:
             if not self._running:
                 return False
 
-            backend = cv2.CAP_ANY if self._source == 0 else cv2.CAP_FFMPEG
-            # cv2.CAP_GSTREAMER
-            cap = cv2.VideoCapture(self._source, backend)
-            if self._source != 0:
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if self._source_type == 'rtsp':
+                pipeline = (
+                    f"rtspsrc location={self._source} latency=100 ! rtph264depay ! h264parse ! "
+                    f"nvv4l2decoder ! nvvidconv ! video/x-raw, format=BGRx ! "
+                    f"videoconvert ! video/x-raw, format=BGR ! appsink drop=true max-buffers=1"
+                )
+                self._capture = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            else:
+                backend = cv2.CAP_ANY if self._source == 0 else cv2.CAP_FFMPEG
+                cap = cv2.VideoCapture(self._source, backend)
+                if self._source != 0:
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
             if cap.isOpened():
                 self._capture = cap
@@ -378,6 +403,10 @@ class AttendanceService:
 
             try:
                 ret, frame = self._capture.read()
+                if self._source_type == "Video File" and self._video_begin_time is not None:
+                    msec = self._capture.get(cv2.CAP_PROP_POS_MSEC)
+                    self._current_actual_time = self._video_begin_time + datetime.timedelta(milliseconds=msec)
+                    # print(f"[CAPTURE] Current video time: {self._current_actual_time}")
                 self.frame_count += 1
                 if self.frame_count > 1000:
                     self.frame_count = 0
@@ -450,8 +479,8 @@ class AttendanceService:
             # ── face detection ──
             try:
                 t0 = time.time()
-                faces = self.recognition.face_app.get(frame_copy)
-                # faces = self.recognition.get_embeddings(frame_copy)
+                # faces = self.recognition.face_app.get(frame_copy)
+                faces = self.recognition.get_embeddings(frame_copy)
                 self.current_detect_time = time.time() - t0
                 self.current_faces = len(faces)
             except Exception as e:
@@ -466,7 +495,8 @@ class AttendanceService:
 
             for face in faces:
                 # print(face)
-                x1, y1, x2, y2 = face.bbox.astype(int)
+                # x1, y1, x2, y2 = face.bbox.astype(int)
+                x1, y1, x2, y2 = face['bbox']
                 area = (x2 - x1) * (y2 - y1)
                 # if area < MIN_BBOX_AREA:
                 #     continue
@@ -477,12 +507,12 @@ class AttendanceService:
                 #     continue
 
                 rects.append([x1, y1, x2, y2])
-                embeddings.append(face.normed_embedding)
-                confidences.append(face.det_score)
+                # embeddings.append(face.normed_embedding)
+                # confidences.append(face.det_score)
                 
-                # embeddings.append(face['normed_embedding'])
-                # confidences.append(face['det_score'])
-                # aligned_faces.append(face['aligned_face'])
+                embeddings.append(face['normed_embedding'])
+                confidences.append(face['det_score'])
+                aligned_faces.append(face['aligned_face'])
 
             self.current_faces_valid = len(embeddings)
 
@@ -497,14 +527,14 @@ class AttendanceService:
                 matched_embedding = None
                 best_iou = 0.0
                 best_rect_idx = -1
-                for i, (rect, emb, conf) in enumerate(zip(rects, embeddings, confidences)):
+                for i, (rect, emb, conf, aligned_face) in enumerate(zip(rects, embeddings, confidences, aligned_faces)):
                     if i in used_rect_indices:
                         continue
                     iou_val = compute_iou([x1, y1, x2, y2], rect)
                     if iou_val > 0.5 and iou_val > best_iou:
                         best_iou = iou_val
                         best_rect_idx = i
-                        matched_embedding = (emb, rect, conf)
+                        matched_embedding = (emb, rect, conf, aligned_face)
 
                 if matched_embedding is None:
                     continue
@@ -548,9 +578,9 @@ class AttendanceService:
                 # ── collect face crops for the tracker ──
                 if frame_copy is not None:
                     face_crop_avatar = crop_face_padded(frame_copy, x1, y1, x2, y2)
-                    # is_blur, variance = check_blur_laplacian(face_crop_avatar)
+                    is_blur, variance = check_blur_laplacian(matched_embedding[3])
                     is_blur = False  # currently disabled
-                    detect_score = matched_embedding[2]
+                    detect_score = variance
 
                     if not is_blur:
                         if not any(self.detect_frame_count is c for _, c, f, e in tracker["frames"]):
@@ -564,8 +594,9 @@ class AttendanceService:
                 rects2.append((track_id, color, label, [x1, y1, x2, y2], detect_score))
 
             self._latest_faces = rects2, frame_copy
-            if self.current_detect_time < 0.15:
-                time.sleep(0.15 - self.current_detect_time)
+            target_fps = (1 / self.frame_fps) * 2
+            if self.current_detect_time < target_fps:
+                time.sleep(target_fps - self.current_detect_time)
 
     # ------------------------------------------------------------------
     # Tracker disappeared → attendance logic
@@ -601,6 +632,8 @@ class AttendanceService:
 
     def _process_disappeared(self, track_id: int, snapshot: dict) -> None:
         timestamp = now_local()
+        if self._source_type == "Video File" and self._video_begin_time is not None:
+            timestamp = self._current_actual_time if self._current_actual_time is not None else now_local()
 
         def save_frames(attendance_id: ObjectId) -> None:
             now_path = os.path.join(CHECKIN_DIR, timestamp.strftime("%Y-%m-%d"), str(attendance_id))
@@ -739,6 +772,8 @@ class AttendanceService:
             (f"Frame: {self.frame_count}", 180),
             (f"Detect Frame: {self.detect_frame_count}", 210),
         ]
+        if self._source_type == "Video File" and self._video_begin_time is not None:
+            stats.append((f"Video Time: {self._current_actual_time}", 240))
         frame = annotate_frame(frame, [], stats)
 
         self.streaming.enqueue(frame)

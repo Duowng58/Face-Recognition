@@ -1831,3 +1831,272 @@
 2026-03-27 11:01:49  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  11:01:49
 2026-03-27 11:01:49  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  11:01:49
 2026-03-27 11:01:49  INFO      app_none_gui  Done.
+2026-03-27 14:03:28  INFO      app_none_gui  ============================================================
+2026-03-27 14:03:28  INFO      app_none_gui  Console attendance app starting
+2026-03-27 14:03:28  INFO      app_none_gui  Source: F:\Git\Face-Recognition\assets\videos\record-2026-03-25-06-51-23.mkv  Type: Video File
+2026-03-27 14:03:28  INFO      app_none_gui  Preview: False  Stream: True  FPS: 15.0
+2026-03-27 14:03:28  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-27.log
+2026-03-27 14:03:28  INFO      app_none_gui  ============================================================
+2026-03-27 14:03:29  INFO      app_none_gui  Loading recognition model & index...
+2026-03-27 14:03:29  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-27 14:03:29  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-27 14:03:29  INFO      app_none_gui  Loading classroom data...
+2026-03-27 14:03:29  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-27 14:03:29  INFO      app_none_gui  Loading today's attendance records...
+2026-03-27 14:03:29  INFO      app_none_gui  116 attendance records loaded for today.
+2026-03-27 14:03:29  INFO      app_none_gui  Connecting to F:\Git\Face-Recognition\assets\videos\record-2026-03-25-06-51-23.mkv (attempt 1/3)...
+2026-03-27 14:03:29  INFO      app_none_gui  ✅ Connected successfully. FPS=15.0
+2026-03-27 14:03:29  INFO      app_none_gui  RTMP streaming enabled.
+2026-03-27 14:03:29  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-27 14:03:29  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 75.13ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 91.75ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 74.28ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 76.93ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 80.03ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 74.86ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 104.57ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 98.20ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 115.55ms (target: 66.67ms)
+2026-03-27 14:03:33  WARNING   app_none_gui  Frame building slow: 96.02ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 110.85ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 107.45ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 124.34ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 100.18ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 140.20ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 154.86ms (target: 66.67ms)
+2026-03-27 14:03:34  WARNING   app_none_gui  Frame building slow: 126.13ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 87.35ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 86.12ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 96.87ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 109.67ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 74.73ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 88.56ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 76.90ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 77.88ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 96.13ms (target: 66.67ms)
+2026-03-27 14:03:35  WARNING   app_none_gui  Frame building slow: 69.66ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 81.74ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 54.65ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 67.93ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 57.42ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 61.61ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 73.90ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 57.40ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 59.39ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 104.25ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 92.73ms (target: 66.67ms)
+2026-03-27 14:03:36  WARNING   app_none_gui  Frame building slow: 75.24ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 54.04ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 66.60ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 81.79ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 87.36ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 58.93ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 67.55ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 58.18ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 77.55ms (target: 66.67ms)
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 83.90ms (target: 66.67ms)
+2026-03-27 14:03:37  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:37
+2026-03-27 14:03:37  WARNING   app_none_gui  Frame building slow: 102.15ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 90.55ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 82.54ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 94.32ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 83.27ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 84.25ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 73.72ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 67.35ms (target: 66.67ms)
+2026-03-27 14:03:38  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:38
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 119.97ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 112.93ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 60.36ms (target: 66.67ms)
+2026-03-27 14:03:38  WARNING   app_none_gui  Frame building slow: 77.39ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 56.76ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 54.78ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 63.61ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 54.65ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 62.62ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 53.83ms (target: 66.67ms)
+2026-03-27 14:03:39  INFO      app_none_gui  PERF: FPS=11.6 (avg frame time: 85.89ms, build time: 73.57ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 76.27ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 79.01ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 97.38ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 89.32ms (target: 66.67ms)
+2026-03-27 14:03:39  WARNING   app_none_gui  Frame building slow: 88.36ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 89.10ms (target: 66.67ms)
+2026-03-27 14:03:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:40
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 94.24ms (target: 66.67ms)
+2026-03-27 14:03:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:40
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 99.67ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 106.57ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 76.54ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 74.46ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 106.53ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 82.08ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 83.43ms (target: 66.67ms)
+2026-03-27 14:03:40  WARNING   app_none_gui  Frame building slow: 67.62ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 62.98ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 74.19ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 73.98ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 106.84ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 69.78ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 79.43ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 76.80ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 72.97ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 64.85ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 79.67ms (target: 66.67ms)
+2026-03-27 14:03:41  WARNING   app_none_gui  Frame building slow: 105.97ms (target: 66.67ms)
+2026-03-27 14:03:41  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:41
+2026-03-27 14:03:41  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:41
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 110.53ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 79.95ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 93.74ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 75.47ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 83.71ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 82.47ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 64.23ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 83.56ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 56.71ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 80.54ms (target: 66.67ms)
+2026-03-27 14:03:42  WARNING   app_none_gui  Frame building slow: 65.56ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 90.97ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 79.79ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 87.01ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 129.01ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 133.76ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 77.37ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 83.22ms (target: 66.67ms)
+2026-03-27 14:03:43  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:43
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 104.25ms (target: 66.67ms)
+2026-03-27 14:03:43  WARNING   app_none_gui  Frame building slow: 91.30ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 92.52ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 107.91ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 107.69ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 92.75ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 101.32ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 122.72ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 117.01ms (target: 66.67ms)
+2026-03-27 14:03:44  WARNING   app_none_gui  Frame building slow: 107.70ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 126.69ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 113.64ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 109.33ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 109.85ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 137.94ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 127.48ms (target: 66.67ms)
+2026-03-27 14:03:45  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:45
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 94.48ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 93.12ms (target: 66.67ms)
+2026-03-27 14:03:45  WARNING   app_none_gui  Frame building slow: 68.13ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 76.97ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 88.67ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 91.30ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 116.23ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 100.29ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 97.49ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 101.99ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 118.45ms (target: 66.67ms)
+2026-03-27 14:03:46  WARNING   app_none_gui  Frame building slow: 86.99ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 92.63ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 110.56ms (target: 66.67ms)
+2026-03-27 14:03:47  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:47
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 119.46ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 63.59ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 71.19ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 69.85ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 67.48ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 59.21ms (target: 66.67ms)
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 76.65ms (target: 66.67ms)
+2026-03-27 14:03:47  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:47
+2026-03-27 14:03:47  WARNING   app_none_gui  Frame building slow: 108.35ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 63.22ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 78.06ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 89.96ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 96.91ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 103.34ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 97.11ms (target: 66.67ms)
+2026-03-27 14:03:48  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:48
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 104.79ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 87.06ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 85.77ms (target: 66.67ms)
+2026-03-27 14:03:48  WARNING   app_none_gui  Frame building slow: 76.66ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 88.88ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 88.70ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 92.86ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 85.08ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 61.04ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 79.53ms (target: 66.67ms)
+2026-03-27 14:03:49  INFO      app_none_gui  PERF: FPS=10.1 (avg frame time: 99.09ms, build time: 87.43ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 73.49ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 99.38ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 91.49ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 61.60ms (target: 66.67ms)
+2026-03-27 14:03:49  WARNING   app_none_gui  Frame building slow: 73.44ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 60.21ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 86.09ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 76.92ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 90.98ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 84.14ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 57.51ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 64.57ms (target: 66.67ms)
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 57.05ms (target: 66.67ms)
+2026-03-27 14:03:50  INFO      app_none_gui  Caught signal 2, shutting down...
+2026-03-27 14:03:50  WARNING   app_none_gui  Frame building slow: 80.62ms (target: 66.67ms)
+2026-03-27 14:03:50  INFO      app_none_gui  Shutting down...
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:03:50
+2026-03-27 14:03:50  INFO      app_none_gui  Done.
+2026-03-27 14:05:05  INFO      app_none_gui  ============================================================
+2026-03-27 14:05:05  INFO      app_none_gui  Console attendance app starting
+2026-03-27 14:05:05  INFO      app_none_gui  Source: F:\Git\Face-Recognition\assets\videos\record-2026-03-25-06-51-23.mkv  Type: Video File
+2026-03-27 14:05:05  INFO      app_none_gui  Preview: False  Stream: True  FPS: 15.0
+2026-03-27 14:05:05  INFO      app_none_gui  Log file: F:\Git\Face-Recognition\logs\console_2026-03-27.log
+2026-03-27 14:05:05  INFO      app_none_gui  ============================================================
+2026-03-27 14:05:06  INFO      app_none_gui  Loading recognition model & index...
+2026-03-27 14:05:06  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-27 14:05:06  INFO      app_none_gui  [STATUS] Thông báo: Đang tải mô hình nhận diện...
+2026-03-27 14:05:06  INFO      app_none_gui  Loading classroom data...
+2026-03-27 14:05:06  INFO      app_none_gui  [STATUS] Thông báo: Chưa có dữ liệu khuôn mặt.
+2026-03-27 14:05:06  INFO      app_none_gui  Loading today's attendance records...
+2026-03-27 14:05:06  INFO      app_none_gui  136 attendance records loaded for today.
+2026-03-27 14:05:06  INFO      app_none_gui  Connecting to F:\Git\Face-Recognition\assets\videos\record-2026-03-25-06-51-23.mkv (attempt 1/3)...
+2026-03-27 14:05:07  INFO      app_none_gui  ✅ Connected successfully. FPS=15.0
+2026-03-27 14:05:07  INFO      app_none_gui  RTMP streaming enabled.
+2026-03-27 14:05:07  INFO      app_none_gui  Running... Press Ctrl+C to stop.
+
+2026-03-27 14:05:07  INFO      app_none_gui  Starting main loop (target FPS: 15.0)
+2026-03-27 14:05:15  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:15
+2026-03-27 14:05:16  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:16
+2026-03-27 14:05:16  INFO      app_none_gui  PERF: FPS=12.5 (avg frame time: 80.26ms, build time: 68.68ms)
+2026-03-27 14:05:17  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:17
+2026-03-27 14:05:22  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:22
+2026-03-27 14:05:24  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:24
+2026-03-27 14:05:26  INFO      app_none_gui  PERF: FPS=8.3 (avg frame time: 120.20ms, build time: 109.80ms)
+2026-03-27 14:05:28  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:28
+2026-03-27 14:05:29  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:29
+2026-03-27 14:05:30  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:30
+2026-03-27 14:05:30  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:30
+2026-03-27 14:05:31  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:31
+2026-03-27 14:05:34  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:34
+2026-03-27 14:05:35  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:35
+2026-03-27 14:05:35  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:35
+2026-03-27 14:05:35  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:35
+2026-03-27 14:05:36  INFO      app_none_gui  PERF: FPS=11.5 (avg frame time: 87.09ms, build time: 75.08ms)
+2026-03-27 14:05:37  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:37
+2026-03-27 14:05:39  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:39
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  Caught signal 2, shutting down...
+2026-03-27 14:05:40  INFO      app_none_gui  Shutting down...
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  [ATTENDANCE]   Unknown  |  score=0.00  |  14:05:40
+2026-03-27 14:05:40  INFO      app_none_gui  Done.

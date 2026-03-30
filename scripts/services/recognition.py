@@ -163,18 +163,18 @@ class RecognitionService:
 
         # Bước 2: Chỉ thực hiện DETECT trên ảnh nhỏ
         # Chúng ta dùng app.models['detection'] trực tiếp để tránh chạy nhận diện toàn bộ ảnh nhỏ
-        print('start detect')
+        # print('start detect')
         bboxes, kpss = self.face_app.models['detection'].detect(frame_small)
-        print('end detect')
+        # print('end detect')
         results = []
         try: 
             if bboxes.shape[0] > 0:
-                print('1')
+                # print('1')
                 for i in range(bboxes.shape[0]):
-                    print('2')
+                    # print('2')
                     # Bước 3: Map tọa độ Box và Keypoints về 4K
                     kps_4k = self.map_to_original(kpss[i], scale, ox, oy)
-                    print('3')
+                    # print('3')
                     x1_sm, y1_sm, x2_sm, y2_sm, score = bboxes[i]
             
                     # 2. Ánh xạ ngược về tọa độ 4K
@@ -190,22 +190,22 @@ class RecognitionService:
                     # Đây là bước chốt để có normed_embedding chính xác nhất
                     # InsightFace dùng 5 điểm landmark (kps) để xoay mặt thẳng lại
                     face_aimg = face_align.norm_crop(frame_4k, kps_4k)
-                    print('4')
+                    # print('4')
                     
                     # Bước 5: Trích xuất Embedding từ vùng ảnh nét nhất
                     feat = self.face_app.models['recognition'].get_feat(face_aimg)
                     normed_embedding = feat / np.linalg.norm(feat)
-                    print('5')
+                    # print('5')
                     results.append({
                         'bbox': bbox_4k,
                         'normed_embedding': normed_embedding, # Dùng cái này đưa vào AnnoyIndex
                         'aligned_face': face_aimg,     # Có thể dùng để hiển thị thumbnail
                         "det_score": score
                     })
-                    print('6')
+                    # print('6')
         except Exception as e:
             print(f"Error processing face {i}: {e}")
-        print(len(results))
+        # print(len(results))
                 
         return results
     # ------------------------------------------------------------------
