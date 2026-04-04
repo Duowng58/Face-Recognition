@@ -2,7 +2,7 @@ import re
 import datetime
 import cv2
 
-filepath = "assets/videos/record-2026-03-25-06-01-24.mkv"
+filepath = "captured_faces/avatars/69b7957d46900a0a04b7d2c8.mkv"
 
 # Tìm chuỗi có định dạng số-số-số...
 match = re.search(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})', filepath)

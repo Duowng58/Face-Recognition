@@ -42,7 +42,6 @@ class RecognitionService:
 
         self.face_app: Optional[FaceAnalysis] = None
         self.annoy_index: Optional[AnnoyIndex] = None
-        self.annoy_unknown_index: Optional[AnnoyIndex] = None
         self.idx2name: dict[str, str] = {}
 
         self.mask_session = ort.InferenceSession(
@@ -194,7 +193,7 @@ class RecognitionService:
                     
                     # Bước 5: Trích xuất Embedding từ vùng ảnh nét nhất
                     feat = self.face_app.models['recognition'].get_feat(face_aimg)
-                    normed_embedding = feat / np.linalg.norm(feat)
+                    normed_embedding = (feat / np.linalg.norm(feat)).flatten()
                     # print('5')
                     results.append({
                         'bbox': bbox_4k,
@@ -272,6 +271,9 @@ class RecognitionService:
             return "Unknown", 0.0
 
         sim = 1 - (dist[0] ** 2) / 2
+        name = self.idx2name.get(str(idx[0]), "Unknown")
+        # print(f"  [DEBUG] idx_list: {idx}, dist_list: {dist}, sim: {sim}, name: {name}")
+        
         if sim >= self.sim_threshold:
             return self.idx2name.get(str(idx[0]), "Unknown"), sim
         return "Unknown", sim

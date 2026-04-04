@@ -44,9 +44,10 @@ from scripts.config import (
 from scripts.services.face_tracker import Tracker
 from scripts.services.recognition import RecognitionService
 from scripts.services.streaming import StreamingService
-from scripts.utils.cv2_helper import check_blur_laplacian, cv2_putText_utf8
+from scripts.utils.cv2_helper import check_blur_laplacian, cv2_putText_utf8, draw_corner_bbox
 from scripts.utils.image_utils import get_attendance_frame_path, get_student_avatar_path
 from scripts.utils.mongodb_access import (
+    LOCAL_TZ,
     Attendance,
     AttendanceRepository,
     MongoClientSingleton,
@@ -93,12 +94,12 @@ def annotate_frame(
 ) -> np.ndarray:
     """Draw bounding boxes, labels, and optional stats overlay on *frame* (mutates in-place)."""
     for track_id, color, label, (x1, y1, x2, y2), detect_score in rects:
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        if os.path.exists(FONT_PATH):
-            frame = cv2_putText_utf8(frame, label + ' - ' + f"{detect_score:.2f}", (x1, y1 - 40), FONT_PATH, 30, color)
-        else:
-            cv2.putText(frame, label, (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        draw_corner_bbox(frame, (x1, y1, x2, y2), label)
+        # if os.path.exists(FONT_PATH):
+        #     frame = cv2_putText_utf8(frame, label + ' - ' + f"{detect_score:.2f}", (x1, y1 - 40), FONT_PATH, 30, color)
+        # else:
+        #     cv2.putText(frame, label, (x1, y1 - 10),
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
     if stats:
         for text, y in stats:
@@ -166,6 +167,7 @@ class AttendanceService:
         self._frame_fps: float = 15.0
 
         self.list_classrooms: list = []
+        
 
         # ── save queue ────────────────────────────
         self._save_queue: queue.Queue = queue.Queue()
@@ -250,15 +252,20 @@ class AttendanceService:
         else:
             self._capture = cv2.VideoCapture(source, backend)
         if source != 0:
-            try:
-                match = re.search(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})', source)
-                if match:
-                    time_str = match.group(1)
-                    start_time = datetime.datetime.strptime(time_str, "%Y-%m-%d-%H-%M-%S")
-            except Exception as e:
-                print("Error parsing video start time: %s", e)
-                start_time = datetime.datetime.now()
-            self._video_begin_time = start_time
+            self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if self._source_type == "Video File":
+                try:
+                    match = re.search(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2})', source)
+                    if match:
+                        time_str = match.group(1)
+                        start_time = datetime.datetime.strptime(time_str, "%Y-%m-%d-%H-%M-%S")
+                        start_time = start_time.replace(tzinfo=LOCAL_TZ)
+                    else:
+                        start_time = now_local()
+                except Exception as e:
+                    print("Error parsing video start time: %s", e)
+                    start_time = now_local()
+                self._video_begin_time = start_time
         if not self._capture.isOpened():
             return False
 
@@ -374,6 +381,8 @@ class AttendanceService:
                 self._frame_fps = fps if 0 < fps <= 100 else 25.0
                 self.on_status("Thông báo: Đã kết nối lại nguồn video thành công!")
                 print("[RECONNECT] Success")
+                
+                    
                 return True
 
             try:
@@ -468,7 +477,7 @@ class AttendanceService:
 
             if last_frame_count == frame_count:
                 time.sleep(1 / self._frame_fps)
-                print("[DETECT] Frame not updated")
+                # print("[DETECT] Frame not updated")
                 continue
             last_frame_count = frame_count
 
@@ -554,7 +563,7 @@ class AttendanceService:
                 tracker = self._trackid_to_name[track_id]
                 name, score = tracker["name"], tracker["score"]
                 tracker_frame_index = tracker.get("frame_index", 0)
-
+                
                 if tracker["name"] == "Unknown" or (tracker_frame_index + 5) < frame_count or tracker_frame_index > frame_count:
                     new_name, new_score = self.recognize(matched_embedding[0])
                     tracker["frame_index"] = frame_count
@@ -570,7 +579,7 @@ class AttendanceService:
                 name, score = tracker["name"], tracker["score"]
                 color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
                 label = (
-                    f"ID:{track_id} - {score:.2f} - {matched_embedding[2]:.2f}"
+                    f"ID:{track_id} - {score:.2f} - {name}"
                     if name != "Unknown"
                     else f"ID:{track_id} Unknown"
                 )
@@ -591,7 +600,7 @@ class AttendanceService:
                             tracker["variance"] = detect_score
 
                 tracker["frames"] = sorted(tracker["frames"], key=lambda x: x[0], reverse=True)[:15]
-                rects2.append((track_id, color, label, [x1, y1, x2, y2], detect_score))
+                rects2.append((track_id, color, tracker["name"], [x1, y1, x2, y2], detect_score))
 
             self._latest_faces = rects2, frame_copy
             target_fps = (1 / self.frame_fps) * 2
@@ -658,8 +667,8 @@ class AttendanceService:
             if len(snapshot["frames"]) < 10:
                 print("Not enough frames for unknown tracker")
                 return
+            print("Process unknown tracker")
 
-        print("Process unknown tracker")
         att_id = ObjectId()
         save_frames(att_id)
 
@@ -671,25 +680,37 @@ class AttendanceService:
         )
 
         if snapshot.get("name") != "Unknown":
-            find_att = self.attendance_repo.find({"_id": ObjectId(snapshot["name"])})
-            if find_att:
-                att = find_att[0]
-                if att.student_id:
-                    students = self.student_repo.find({"_id": att.student_id})
-                    if students:
-                        student = students[0]
-                        record.student_id = student.id
-                        record.student_name = student.name
+            students = self.student_repo.find({"_id": ObjectId(snapshot["name"])})
+            if not students:
+                find_att = self.attendance_repo.find({"_id": ObjectId(snapshot["name"])})
+                if find_att:
+                    att = find_att[0]
+                    if att.student_id:
+                        students = self.student_repo.find({"_id": att.student_id})
+            if students:
+                student = students[0]
+                record.student_id = student.id
+                record.student_name = student.name
 
-                        already = self.attendance_repo.find({
-                            "student_id": student.id,
-                            "time": {"$gte": start_of_today_local()},
-                        })
-                        if already:
-                            return
+                time_to_check = start_of_today_local(timestamp)
+                end_time = time_to_check + datetime.timedelta(hours=12)
+                # Kiểm tra nếu hiện tại qua 12 giờ trưa
+                print(f'Current time: {timestamp}, hour: {timestamp.hour}')
+                if timestamp.hour >= 12:
+                    time_to_check = time_to_check + datetime.timedelta(hours=12)
+                    end_time = end_time + datetime.timedelta(hours=12)
+                # print(time_to_check)
+                query = {
+                    "student_id": student.id,
+                    "time": {"$gte": time_to_check, "$lt": end_time},
+                }
+                already = self.attendance_repo.find(query)
+                print(query, already)
+                if already:
+                    return
 
-                        cls = next((c for c in self.list_classrooms if c["_id"] == student.class_id), None)
-                        record.student_classroom = cls["name"] if cls else ""
+                cls = next((c for c in self.list_classrooms if c["_id"] == student.class_id), None)
+                record.student_classroom = cls["name"] if cls else ""
 
         self.attendance_repo.insert(record)
         self._build_unknown_face(snapshot, record)

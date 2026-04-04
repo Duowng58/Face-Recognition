@@ -27,8 +27,8 @@ def now_local() -> datetime:
     return datetime.now(LOCAL_TZ)
 
 
-def start_of_today_local() -> datetime:
-    now = now_local()
+def start_of_today_local(date: Optional[datetime] = None) -> datetime:
+    now = date or now_local()
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 

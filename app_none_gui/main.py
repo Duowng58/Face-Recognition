@@ -15,6 +15,7 @@ Press Ctrl+C to stop.
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import os
 import signal
@@ -24,6 +25,9 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import cv2
+import numpy as np
+_IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 # ── Ensure project root is on sys.path ──
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.normpath(os.path.join(_THIS_DIR, ".."))
@@ -47,8 +51,9 @@ logging.basicConfig(
 log = logging.getLogger("app_none_gui")
 
 # Import scripts first (loads onnxruntime before any Qt/GUI libs)
-from scripts.config import DEFAULT_RTSP_URL, VIDEO
+from scripts.config import AVATAR_DIR, CAPTURE_ROOT, CHECKIN_DIR, DEFAULT_RTSP_URL, FACE_BUILD_TIME_EXCLUDE, VIDEO, FACE_DATA_DIR, DETECT_SIZE, EMBEDDING_DIM
 from scripts.services.attendance import AttendanceService
+from scripts.utils.mongodb_access import MongoClientSingleton, now_local, to_local
 
 
 # ═════════════════════════════════════════════════════════════
@@ -226,6 +231,390 @@ class ConnectionManager:
 
 
 # ─────────────────────────────────────────────────────────────
+# ✅ NEW: Background worker – auto-build face index from videos
+# ─────────────────────────────────────────────────────────────
+
+class FaceBuildWorker:
+    """
+    Periodic background worker that checks the *students* collection for
+    documents with ``video_file != ''`` **and** ``has_build_face != true``,
+    extracts face embeddings from the referenced video, saves a ``.npy``
+    file, rebuilds the Annoy index, and marks the student as processed.
+
+    Parameters
+    ----------
+    svc : AttendanceService
+        The running attendance service (provides ``svc.recognition``).
+    interval : float
+        Seconds between each check cycle (default 300 = 5 minutes).
+    dup_threshold : float
+        Cosine-similarity threshold for filtering duplicate embeddings
+        extracted from the same video (default 0.7).
+    """
+
+    def __init__(
+        self,
+        svc: "AttendanceService",
+        interval: float = 300.0,
+        dup_threshold: float = 0.7,
+    ) -> None:
+        self.svc = svc
+        self.interval = interval
+        self.dup_threshold = dup_threshold
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._log = logging.getLogger("face_build_worker")
+
+    # ── public API ────────────────────────────────────────────
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="FaceBuildWorker")
+        self._thread.start()
+        self._log.info("FaceBuildWorker started (interval=%ds)", self.interval)
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=10)
+        self._log.info("FaceBuildWorker stopped.")
+
+    # ── internal loop ─────────────────────────────────────────
+
+    def _loop(self) -> None:
+        # Run immediately on start, then every *interval* seconds
+        while not self._stop.is_set():
+            try:
+                # kiểm tra thời gian hiện tại không từ 6:00:00 - 7:00:00, hoặc 13h00 - 14h00
+                
+                now = now_local().time()
+                for start_hour, start_minute, end_hour, end_minute in FACE_BUILD_TIME_EXCLUDE:
+                    if datetime.time(start_hour, start_minute) <= now <= datetime.time(end_hour, end_minute):
+                        break
+                else:
+                    self._tick()
+            except Exception:
+                self._log.exception("Error in FaceBuildWorker tick")
+            # Sleep in small increments so we can respond to stop quickly
+            slept = 0.0
+            while slept < self.interval and not self._stop.is_set():
+                time.sleep(min(5.0, self.interval - slept))
+                slept += 5.0
+
+    def _tick(self) -> None:
+        """One check cycle: query → extract → save → rebuild → update."""
+        client = MongoClientSingleton.get_client()
+        students_col = client.collection("students")
+        attendances_col = client.collection("attendances")
+        need_rebuild = False
+        
+        # Find students that have a video but haven't been processed yet
+        query = {
+            "video_file": {"$nin": [None, ""]},
+            "$or": [
+                {"has_build_face": False},
+                {"has_build_face": {"$exists": False}},
+            ],
+        }
+        pending = list(students_col.find(query))
+        if(len(pending)>0):
+            self._log.info("Found %d student(s) to build face index for.", len(pending))
+
+        for doc in pending:
+            if self._stop.is_set():
+                break
+            student_id = doc["_id"]
+            student_name = doc.get("name", str(student_id))
+            video_path = doc.get("video_file", "")
+            video_path = os.path.join(CAPTURE_ROOT, video_path)
+            self._log.info(
+                "Processing student %s (%s)  video=%s",
+                student_name, student_id, video_path,
+            )
+
+            if not os.path.isfile(video_path):
+                self._log.warning("Video file not found: %s – skipping.", video_path)
+                continue
+
+            try:
+                embeddings = self._extract_from_video(video_path)
+            except Exception:
+                self._log.exception("Failed to extract embeddings from %s", video_path)
+                continue
+
+            if not embeddings:
+                self._log.warning(
+                    "No embeddings extracted for %s – skipping.", student_name,
+                )
+                continue
+
+            # De-duplicate within this video
+            unique = self._filter_unique(embeddings)
+            self._log.info(
+                "  Raw=%d  Unique=%d embeddings", len(embeddings), len(unique),
+            )
+
+            # Save .npy (use student _id as filename for safety)
+            os.makedirs(FACE_DATA_DIR, exist_ok=True)
+            safe_name = str(student_id)
+            npy_path = os.path.join(FACE_DATA_DIR, f"{safe_name}.npy")
+
+            # Replace with existing .npy if present
+            if os.path.exists(npy_path):
+                os.remove(npy_path)
+
+            np.save(npy_path, np.array(unique))
+            self._log.info("  Saved %d embeddings → %s", len(unique), npy_path)
+            need_rebuild = True
+
+            # Mark student as processed in MongoDB
+            try:
+                students_col.update_one(
+                    {"_id": student_id},
+                    {"$set": {"has_build_face": True}},
+                )
+                self._log.info("  Updated has_build_face=True for %s", student_name)
+            except Exception:
+                self._log.exception("  Failed to update MongoDB for %s", student_name)
+
+        # Tìm attendances đã check mà chưa build
+        att_query = {
+            "is_checked_image": True,
+            "student_id": {"$ne": None},
+            "has_build_face": {"$ne": True},
+        }
+        pending_attendances = list(attendances_col.find(att_query))
+        if(len(pending_attendances)>0):
+            self._log.info(f'Total attendances to build face: {len(pending_attendances)}')
+
+        if pending_attendances:
+            self._log.info(
+                "Found %d attendance(s) with checked images to build.",
+                len(pending_attendances),
+            )
+
+        for doc in pending_attendances:
+            if self._stop.is_set():
+                break
+
+            attendance_id = doc["_id"]
+            student_id = doc.get("student_id")
+            student_name = doc.get("student_name", str(student_id))
+            timestamp = to_local(doc.get("time"))
+
+
+            video_frames_folder = os.path.join(
+                CHECKIN_DIR,
+                timestamp.strftime("%Y-%m-%d"),
+                str(attendance_id),
+                "frames",
+            )
+
+            self._log.info(
+                "Processing attendance %s  student=%s (%s)  folder=%s",
+                attendance_id, student_name, student_id, video_frames_folder,
+            )
+
+            if not os.path.isdir(video_frames_folder):
+                self._log.warning("Frames folder not found: %s – skipping.", video_frames_folder)
+                # Still mark so we don't retry every cycle
+                try:
+                    attendances_col.update_one(
+                        {"_id": attendance_id},
+                        {"$set": {"has_build_face": True}},
+                    )
+                except Exception:
+                    self._log.exception("  Failed to update attendance %s", attendance_id)
+                continue
+
+            try:
+                embeddings = self._extract_from_folder(video_frames_folder)
+            except Exception:
+                self._log.exception("Failed to extract embeddings from %s", video_frames_folder)
+                continue
+
+            if not embeddings:
+                self._log.warning(
+                    "No embeddings extracted from %s – skipping.", video_frames_folder,
+                )
+                try:
+                    attendances_col.update_one(
+                        {"_id": attendance_id},
+                        {"$set": {"has_build_face": True}},
+                    )
+                except Exception:
+                    pass
+                continue
+
+            # De-duplicate within this folder
+            unique = self._filter_unique(embeddings)
+            self._log.info(
+                "  Raw=%d  Unique=%d embeddings", len(embeddings), len(unique),
+            )
+
+            # Save / merge into {attendance_id}.npy
+            os.makedirs(FACE_DATA_DIR, exist_ok=True)
+            safe_name = str(attendance_id)
+            npy_path = os.path.join(FACE_DATA_DIR, f"{safe_name}.npy")
+
+            if os.path.exists(npy_path):
+                os.remove(npy_path)
+
+            np.save(npy_path, np.array(unique))
+            self._log.info("  Saved %d embeddings → %s", len(unique), npy_path)
+            need_rebuild = True
+
+            # Mark attendance as processed
+            try:
+                attendances_col.update_one(
+                    {"_id": attendance_id},
+                    {"$set": {"has_build_face": True}},
+                )
+                self._log.info("  Updated has_build_face=True for attendance %s", attendance_id)
+            except Exception:
+                self._log.exception("  Failed to update attendance %s", attendance_id)
+
+        # Rebuild the Annoy index once after processing all students + attendances
+        if need_rebuild and not self._stop.is_set():
+            self._log.info("Rebuilding Annoy index...")
+            try:
+                self.svc.recognition.build_face(on_complete=lambda msg: self._log.info(msg))
+                self._log.info("Annoy index rebuilt & reloaded successfully.")
+            except Exception:
+                self._log.exception("Failed to rebuild Annoy index")
+
+    # ── video extraction helpers (reuse svc.recognition model) ──
+
+    def _extract_from_video(self, video_path: str) -> list[np.ndarray]:
+        """Read a video file and extract one embedding per detected face per frame."""
+        from insightface.utils import face_align as _face_align
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            self._log.error("Cannot open video: %s", video_path)
+            return []
+
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0 or fps > 100:
+            fps = 30.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self._log.info("  Video FPS=%.1f  Total frames=%d", fps, total)
+
+        rec = self.svc.recognition  # RecognitionService instance
+        all_embs: list[np.ndarray] = []
+        count = 0
+
+        while not self._stop.is_set():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            count += 1
+
+            try:
+                h, w = frame.shape[:2]
+                small = rec.letterbox(frame)
+                scale, ox, oy = rec.get_letterbox_params(h, w)
+                bboxes, kpss = rec.face_app.models["detection"].detect(small)
+
+                if bboxes.shape[0] == 0:
+                    continue
+
+                for i in range(bboxes.shape[0]):
+                    kps_orig = rec.map_to_original(kpss[i], scale, ox, oy)
+                    face_aimg = _face_align.norm_crop(frame, kps_orig)
+                    feat = rec.face_app.models["recognition"].get_feat(face_aimg)
+                    normed = feat / np.linalg.norm(feat)
+                    all_embs.append(normed.flatten())
+            except Exception as e:
+                self._log.debug("  Frame %d error: %s", count, e)
+
+            if count % 100 == 0:
+                self._log.info(
+                    "  Processed %d/%d frames  |  Raw embeddings: %d",
+                    count, total, len(all_embs),
+                )
+
+        cap.release()
+        self._log.info(
+            "  Done: %d frames processed, %d raw embeddings", count, len(all_embs),
+        )
+        return all_embs
+
+    def _extract_from_folder(self, folder: str) -> list[np.ndarray]:
+        """Read all images in *folder* and extract face embeddings."""
+        from insightface.utils import face_align as _face_align
+
+        files = sorted(
+            f for f in os.listdir(folder)
+            if os.path.splitext(f)[1].lower() in _IMG_EXTS
+        )
+        if not files:
+            self._log.warning("No images found in %s", folder)
+            return []
+
+        self._log.info("  Folder: %s  |  Images: %d", folder, len(files))
+
+        rec = self.svc.recognition
+        all_embs: list[np.ndarray] = []
+
+        for i, fname in enumerate(files, 1):
+            if self._stop.is_set():
+                break
+
+            img_path = os.path.join(folder, fname)
+            img = cv2.imread(img_path)
+            if img is None:
+                self._log.debug("  Cannot read image: %s", fname)
+                continue
+
+            try:
+                h, w = img.shape[:2]
+                small = rec.letterbox(img)
+                scale, ox, oy = rec.get_letterbox_params(h, w)
+                bboxes, kpss = rec.face_app.models["detection"].detect(small)
+
+                if bboxes.shape[0] == 0:
+                    continue
+
+                for j in range(bboxes.shape[0]):
+                    kps_orig = rec.map_to_original(kpss[j], scale, ox, oy)
+                    face_aimg = _face_align.norm_crop(img, kps_orig)
+                    feat = rec.face_app.models["recognition"].get_feat(face_aimg)
+                    normed = feat / np.linalg.norm(feat)
+                    all_embs.append(normed.flatten())
+            except Exception as e:
+                self._log.debug("  Image %s error: %s", fname, e)
+
+            if i % 20 == 0:
+                self._log.info(
+                    "  Processed %d/%d images  |  Raw embeddings: %d",
+                    i, len(files), len(all_embs),
+                )
+
+        self._log.info(
+            "  Done: %d images processed, %d raw embeddings",
+            len(files), len(all_embs),
+        )
+        return all_embs
+
+    @staticmethod
+    def _filter_unique(
+        embeddings: list[np.ndarray], threshold: float = 0.7,
+    ) -> list[np.ndarray]:
+        """Remove near-duplicate embeddings based on cosine similarity."""
+        if not embeddings:
+            return []
+        unique: list[np.ndarray] = [embeddings[0]]
+        for emb in embeddings[1:]:
+            sims = np.dot(np.array(unique), emb)
+            if np.max(sims) < threshold:
+                unique.append(emb)
+        return unique
+
+
+# ─────────────────────────────────────────────────────────────
 # ✅ NEW: Main loop refactored for efficiency
 # ─────────────────────────────────────────────────────────────
 
@@ -263,7 +652,8 @@ class MainLoop:
                 if self.config.target_fps != self.svc.frame_fps:
                     self.config.target_fps = self.svc.frame_fps
                     target_interval = 1.0 / max(self.config.target_fps, 1.0)
-                    
+                
+                
                 # Build frame only if needed
                 if self.config.preview or self.config.stream:
                     try:
@@ -428,12 +818,12 @@ def main() -> None:
     except Exception:
         log.exception("Failed to load classrooms (continuing anyway)")
 
-    try:
-        log.info("Loading today's attendance records...")
-        today = svc.load_today_attendance()
-        log.info("%d attendance records loaded for today.", len(today))
-    except Exception:
-        log.exception("Failed to load today's attendance (continuing anyway)")
+    # try:
+    #     log.info("Loading today's attendance records...")
+    #     today = svc.load_today_attendance()
+    #     log.info("%d attendance records loaded for today.", len(today))
+    # except Exception:
+    #     log.exception("Failed to load today's attendance (continuing anyway)")
 
     # ── Start capture with connection manager ──────────────────
     conn_manager = ConnectionManager(config, svc)
@@ -449,6 +839,10 @@ def main() -> None:
     if args.preview:
         log.info("Preview window enabled. Press 'q' in the window to quit.")
 
+    # ── Start face-build background worker ────────────────────
+    face_build_worker = FaceBuildWorker(svc, interval=300.0)
+    face_build_worker.start()
+
     log.info("Running... Press Ctrl+C to stop.\n")
 
     # ── Run main loop ─────────────────────────────────────────
@@ -461,6 +855,11 @@ def main() -> None:
     finally:
         # ── Cleanup ───────────────────────────────────────────
         log.info("Shutting down...")
+        try:
+            face_build_worker.stop()
+        except Exception:
+            log.exception("Error stopping FaceBuildWorker")
+
         try:
             svc.close()
         except Exception:
