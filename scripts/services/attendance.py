@@ -94,7 +94,7 @@ def annotate_frame(
 ) -> np.ndarray:
     """Draw bounding boxes, labels, and optional stats overlay on *frame* (mutates in-place)."""
     for track_id, color, label, (x1, y1, x2, y2), detect_score in rects:
-        draw_corner_bbox(frame, (x1, y1, x2, y2), label)
+        draw_corner_bbox(frame, (x1, y1, x2, y2), (label, detect_score))
         # if os.path.exists(FONT_PATH):
         #     frame = cv2_putText_utf8(frame, label + ' - ' + f"{detect_score:.2f}", (x1, y1 - 40), FONT_PATH, 30, color)
         # else:
@@ -139,6 +139,7 @@ class AttendanceService:
             frame_height=FRAME_HEIGHT,
             rtmp_url=DEFAULT_RTMP_URL,
         )
+        self.is_streaming = False
         self.tracker = Tracker()
 
         # ── db ────────────────────────────────────
@@ -155,6 +156,10 @@ class AttendanceService:
         self._latest_faces: list = []
         self._capture_thread: Optional[threading.Thread] = None
         self._detect_thread: Optional[threading.Thread] = None
+        self._attendance_thread: Optional[threading.Thread] = None
+        # ── attendance queue ───────────────────────
+        self._attendance_queue: queue.Queue = queue.Queue()
+        
 
         self._trackid_to_name: Dict[int, dict] = {}
         self._last_seen: Dict[str, float] = {}
@@ -167,11 +172,16 @@ class AttendanceService:
         self._frame_fps: float = 15.0
 
         self.list_classrooms: list = []
+        self.check_detect = {}
+        
         
 
         # ── save queue ────────────────────────────
         self._save_queue: queue.Queue = queue.Queue()
         threading.Thread(target=self._save_worker, daemon=True).start()
+        
+        # ── check-in directory ─────────────────────
+        
 
         os.makedirs(CHECKIN_DIR, exist_ok=True)
 
@@ -221,7 +231,7 @@ class AttendanceService:
     def frame_fps(self) -> float:
         return self._frame_fps
 
-    def start_capture(self, source: int | str, source_type: str) -> bool:
+    def start_capture(self, source: int | str, source_type: str, is_streaming: bool) -> bool:
         """
         Open *source* and start capture + detect threads.
 
@@ -283,8 +293,15 @@ class AttendanceService:
 
         self._detect_thread = threading.Thread(target=self._detect_worker, daemon=True)
         self._detect_thread.start()
+        
+        self._attendance_thread = threading.Thread(target=self._attendance_loop, daemon=True)
+        self._attendance_thread.start()
+        
+        
 
-        self.streaming.start(self._frame_fps, lambda: self._running)
+        if is_streaming:
+            self.is_streaming = True
+            self.streaming.start(self._frame_fps, lambda: self._running)
         return True
 
     def stop_capture(self) -> None:
@@ -293,7 +310,7 @@ class AttendanceService:
 
         self._running = False
 
-        for t in (self._capture_thread, self._detect_thread):
+        for t in (self._capture_thread, self._detect_thread, self._attendance_thread):
             if t is not None and t.is_alive():
                 t.join(timeout=1)
 
@@ -301,6 +318,7 @@ class AttendanceService:
         self._release_capture()
 
     def toggle_streaming(self, enabled: bool) -> None:
+        self.is_streaming = enabled
         self.streaming.toggle(enabled, self._frame_fps, lambda: self._running)
 
     # ------------------------------------------------------------------
@@ -416,6 +434,8 @@ class AttendanceService:
                     msec = self._capture.get(cv2.CAP_PROP_POS_MSEC)
                     self._current_actual_time = self._video_begin_time + datetime.timedelta(milliseconds=msec)
                     # print(f"[CAPTURE] Current video time: {self._current_actual_time}")
+                # if self.frame_count != self.detect_frame_count:
+                #     print(f"skip frame {self.frame_count}")
                 self.frame_count += 1
                 if self.frame_count > 1000:
                     self.frame_count = 0
@@ -457,6 +477,40 @@ class AttendanceService:
 
         self._running = False
 
+
+    def _attendance_loop(self) -> None:
+        while self._running:
+            try:
+                now = now_local()
+                names_to_delete = []
+                
+                # Sử dụng list() để bọc items() giúp an toàn khi đa luồng
+                for name, tracker in list(self.check_detect.items()):
+                    last_seen = tracker["last_seen"]
+                    if (now - last_seen).total_seconds() > 10:
+                        snapshot = {
+                            "time": tracker.get("first_seen"),
+                            "frames": list(tracker.get("frames", [])),
+                            "frame": tracker.get("frame"),
+                            "name": name,
+                            "score": tracker.get("score", 0),
+                        }
+                        # Xử lý logic điểm danh/lưu database
+                        self._process_disappeared(0, snapshot)
+                        names_to_delete.append(name)
+                
+                for name in names_to_delete:
+                    # Dùng pop để tránh lỗi nếu key đã bị xóa ở đâu đó khác
+                    self.check_detect.pop(name, None)
+                    
+            except Exception as e:
+                # Nên in lỗi ra để dễ debug khi phát triển
+                print(f"Error in cleanup loop: {e}")
+                time.sleep(1)
+                
+            # QUAN TRỌNG: Nghỉ ngắn để CPU không bị quá tải
+            time.sleep(1) 
+
     # ------------------------------------------------------------------
     # Internal: detection worker
     # ------------------------------------------------------------------
@@ -481,15 +535,15 @@ class AttendanceService:
                 continue
             last_frame_count = frame_count
 
-            self.detect_frame_count += 1
-            if self.detect_frame_count > 1000:
-                self.detect_frame_count = 0
+            self.detect_frame_count = last_frame_count
+            # if self.detect_frame_count > 1000:
+            #     self.detect_frame_count = 0
 
             # ── face detection ──
             try:
                 t0 = time.time()
-                # faces = self.recognition.face_app.get(frame_copy)
-                faces = self.recognition.get_embeddings(frame_copy)
+                faces = self.recognition.face_app.get(frame_copy)
+                # faces = self.recognition.get_embeddings(frame_copy)
                 self.current_detect_time = time.time() - t0
                 self.current_faces = len(faces)
             except Exception as e:
@@ -504,11 +558,11 @@ class AttendanceService:
 
             for face in faces:
                 # print(face)
-                # x1, y1, x2, y2 = face.bbox.astype(int)
-                x1, y1, x2, y2 = face['bbox']
+                x1, y1, x2, y2 = face.bbox.astype(int)
+                # x1, y1, x2, y2 = face['bbox']
                 area = (x2 - x1) * (y2 - y1)
-                # if area < MIN_BBOX_AREA:
-                #     continue
+                if area < MIN_BBOX_AREA:
+                    continue
 
                 # face_crop = crop_face_padded(frame_copy, x1, y1, x2, y2)
                 # mask_label, mask_conf = self.recognition.check_mask(face_crop)
@@ -516,96 +570,157 @@ class AttendanceService:
                 #     continue
 
                 rects.append([x1, y1, x2, y2])
-                # embeddings.append(face.normed_embedding)
-                # confidences.append(face.det_score)
+                embeddings.append(face.normed_embedding)
+                confidences.append(face.det_score)
                 
-                embeddings.append(face['normed_embedding'])
-                confidences.append(face['det_score'])
-                aligned_faces.append(face['aligned_face'])
+                # embeddings.append(face['normed_embedding'])
+                # confidences.append(face['det_score'])
+                # aligned_faces.append(face['aligned_face'])
 
             self.current_faces_valid = len(embeddings)
-
-            # ── tracking ──
-            tracks = self.tracker.update(rects, classId="face")
+            
+            
             rects2: list = []
-            used_rect_indices: Set[int] = set()
-
-            for track in tracks:
-                x1, y1, x2, y2, track_id, _ = track
-
-                matched_embedding = None
-                best_iou = 0.0
-                best_rect_idx = -1
-                for i, (rect, emb, conf, aligned_face) in enumerate(zip(rects, embeddings, confidences, aligned_faces)):
-                    if i in used_rect_indices:
-                        continue
-                    iou_val = compute_iou([x1, y1, x2, y2], rect)
-                    if iou_val > 0.5 and iou_val > best_iou:
-                        best_iou = iou_val
-                        best_rect_idx = i
-                        matched_embedding = (emb, rect, conf, aligned_face)
-
-                if matched_embedding is None:
-                    continue
-                used_rect_indices.add(best_rect_idx)
-
-                # ── init tracker entry ──
-                if self._trackid_to_name.get(track_id) is None:
-                    self._trackid_to_name[track_id] = {
-                        "name": "Unknown",
-                        "score": 0.0,
-                        "student": None,
-                        "frames": [],
-                        "frame": None,
-                        "attendance_id": None,
-                    }
-
-                tracker = self._trackid_to_name[track_id]
-                name, score = tracker["name"], tracker["score"]
-                tracker_frame_index = tracker.get("frame_index", 0)
-                
-                if tracker["name"] == "Unknown" or (tracker_frame_index + 5) < frame_count or tracker_frame_index > frame_count:
-                    new_name, new_score = self.recognize(matched_embedding[0])
-                    tracker["frame_index"] = frame_count
-                    if tracker["name"] == "Unknown":
-                        tracker["name"] = new_name
-                        tracker["score"] = new_score
-                    elif new_name != "Unknown" and new_name != tracker["name"]:
-                        if new_score > (tracker["score"] + 0.05):
-                            tracker["name"] = new_name
-                            tracker["score"] = new_score
-                            tracker["frames"] = []
-
-                name, score = tracker["name"], tracker["score"]
+            for i, (rect, emb) in enumerate(zip(rects, embeddings)):
+                ""
+                name, score = self.recognize(emb)
                 color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
-                label = (
-                    f"ID:{track_id} - {score:.2f} - {name}"
-                    if name != "Unknown"
-                    else f"ID:{track_id} Unknown"
-                )
+                
+                face_crop_avatar = crop_face_padded(frame_copy, *rect)
+                if name != "Unknown":
+                    now = now_local()
+                    if name not in self.check_detect:
+                        self.check_detect[name] = {
+                            "first_seen": now,
+                            "last_seen": now,
+                            "score": score,
+                            "frame": face_crop_avatar,
+                            "frames": []
+                        }
+                    tracker = self.check_detect[name]
+                    tracker["last_seen"] = now
+                    if score > tracker["score"]:
+                        tracker["score"] = score
+                        tracker["frame"] = face_crop_avatar
+                            
+                    tracker["frames"].append((score, self.detect_frame_count, face_crop_avatar, emb))
+                    tracker["frames"] = sorted(tracker["frames"], key=lambda x: x[0], reverse=True)[:15]
+                        
+                # window_name = f"face_aimg-{i}"
+                # try:
+                #     cv2.destroyWindow(window_name)
+                # except cv2.error:
+                #     pass
+                # cv2.namedWindow(window_name)
+                # cv2.moveWindow(window_name, 150 * i, 0)
+                # cv2.imshow(window_name, face_crop_avatar)
+                # cv2.waitKey(1)    
+                rects2.append((0, color, name, rect, score))
+                
+                
+                
+            
+            
+            
+            
+            
+            
 
-                # ── collect face crops for the tracker ──
-                if frame_copy is not None:
-                    face_crop_avatar = crop_face_padded(frame_copy, x1, y1, x2, y2)
-                    is_blur, variance = check_blur_laplacian(matched_embedding[3])
-                    is_blur = False  # currently disabled
-                    detect_score = variance
+            # # ── tracking ──
+            # tracks = self.tracker.update(rects, classId="face")
+            # rects2: list = []
+            # used_rect_indices: Set[int] = set()
 
-                    if not is_blur:
-                        if not any(self.detect_frame_count is c for _, c, f, e in tracker["frames"]):
-                            tracker["frames"].append((detect_score, self.detect_frame_count, face_crop_avatar, matched_embedding[0]))
+            # for track in tracks:
+            #     x1, y1, x2, y2, track_id, _ = track
 
-                        if detect_score > tracker.get("variance", 0):
-                            tracker["frame"] = face_crop_avatar.copy()
-                            tracker["variance"] = detect_score
+            #     matched_embedding = None
+            #     best_iou = 0.0
+            #     best_rect_idx = -1
+            #     for i, (rect, emb, conf, aligned_face) in enumerate(zip(rects, embeddings, confidences, aligned_faces)):
+            #         if i in used_rect_indices:
+            #             continue
+            #         iou_val = compute_iou([x1, y1, x2, y2], rect)
+            #         if iou_val > 0.5 and iou_val > best_iou:
+            #             best_iou = iou_val
+            #             best_rect_idx = i
+            #             matched_embedding = (emb, rect, conf, aligned_face)
 
-                tracker["frames"] = sorted(tracker["frames"], key=lambda x: x[0], reverse=True)[:15]
-                rects2.append((track_id, color, tracker["name"], [x1, y1, x2, y2], detect_score))
+            #     if matched_embedding is None:
+            #         continue
+            #     used_rect_indices.add(best_rect_idx)
+
+            #     # ── init tracker entry ──
+            #     if self._trackid_to_name.get(track_id) is None:
+            #         self._trackid_to_name[track_id] = {
+            #             "name": "Unknown",
+            #             "score": 0.0,
+            #             "student": None,
+            #             "frames": [],
+            #             "frame": None,
+            #             "attendance_id": None,
+            #         }
+
+            #     tracker = self._trackid_to_name[track_id]
+            #     name, score = tracker["name"], tracker["score"]
+            #     # tracker_frame_index = tracker.get("frame_index", 0)
+                
+            #     new_name, new_score = self.recognize(matched_embedding[0])
+            #     tracker["frame_index"] = frame_count
+            #     frame_allow = False
+            #     if tracker["name"] == "Unknown":
+            #         tracker["name"] = new_name
+            #         tracker["score"] = new_score
+            #         if new_name != "Unknown":
+            #             frame_allow = True
+            #     elif new_name != "Unknown":
+            #         if new_name != tracker["name"]:
+            #             if new_score > (tracker["score"] + 0.05):
+            #                 print("="*50)
+            #                 print(f"Updating tracker {track_id} name from {tracker['name']} to {new_name} with score {new_score}")
+            #                 tracker["name"] = new_name
+            #                 tracker["score"] = new_score
+            #                 tracker["frames"] = []
+            #                 frame_allow = True
+            #         else:
+            #             frame_allow = True
+
+            #     name, score = tracker["name"], tracker["score"]
+                
+            #     color = (0, 255, 0) if name != "Unknown" else (0, 0, 255)
+                
+            #     if name != "Unknown":
+            #         self.check_detect[track_id] = True
+            #         label = f"ID:{track_id} - {score:.2f} - {name}"
+            #     else:
+            #         label = f"ID:{track_id} Unknown"
+
+            #     detect_score = score
+            #     # ── collect face crops for the tracker ──
+            #     if frame_copy is not None and frame_allow:
+            #         face_crop_avatar = crop_face_padded(frame_copy, x1, y1, x2, y2)
+            #         # is_blur, variance = check_blur_laplacian(matched_embedding[3])
+            #         is_blur = False  # currently disabled
+
+            #         if not is_blur:
+            #             if not any(self.detect_frame_count is c for _, c, f, e in tracker["frames"]):
+            #                 tracker["frames"].append((detect_score, self.detect_frame_count, face_crop_avatar, matched_embedding[0]))
+
+            #             if detect_score > tracker.get("variance", 0):
+            #                 tracker["frame"] = face_crop_avatar.copy()
+            #                 tracker["variance"] = detect_score
+
+            #         tracker["frames"] = sorted(tracker["frames"], key=lambda x: x[0], reverse=True)[:15]
+            #     rects2.append((track_id, color, tracker["name"], [x1, y1, x2, y2], detect_score))
 
             self._latest_faces = rects2, frame_copy
-            target_fps = (1 / self.frame_fps) * 2
-            if self.current_detect_time < target_fps:
-                time.sleep(target_fps - self.current_detect_time)
+            # Kiểm tra source có phải video file không để điều chỉnh tốc độ detect
+            if self._source_type == "Video File":
+                target_fps = (1 / self.frame_fps) * 2
+                if self.current_detect_time < target_fps:
+                    time_to_sleep = target_fps - self.current_detect_time
+                    # print(f"Sleeping for {time_to_sleep:.2f} seconds to maintain target FPS")
+                    time.sleep(time_to_sleep)
 
     # ------------------------------------------------------------------
     # Tracker disappeared → attendance logic
@@ -695,7 +810,7 @@ class AttendanceService:
                 time_to_check = start_of_today_local(timestamp)
                 end_time = time_to_check + datetime.timedelta(hours=12)
                 # Kiểm tra nếu hiện tại qua 12 giờ trưa
-                print(f'Current time: {timestamp}, hour: {timestamp.hour}')
+                # print(f'Current time: {timestamp}, hour: {timestamp.hour}')
                 if timestamp.hour >= 12:
                     time_to_check = time_to_check + datetime.timedelta(hours=12)
                     end_time = end_time + datetime.timedelta(hours=12)
@@ -705,7 +820,7 @@ class AttendanceService:
                     "time": {"$gte": time_to_check, "$lt": end_time},
                 }
                 already = self.attendance_repo.find(query)
-                print(query, already)
+                # print(query, already)
                 if already:
                     return
 
@@ -770,14 +885,19 @@ class AttendanceService:
             return None
 
         frame_w, frame_h = frame.shape[1], frame.shape[0]
-
+        ratio = frame_w / frame_h
+        # print(f"Original frame size: {frame_w}x{frame_h}, ratio: {ratio:.2f}")
+        target_W, target_H = FRAME_WIDTH, FRAME_HEIGHT
+        if self._source_type == "Video File":
+            target_W = int(FRAME_HEIGHT * ratio)
+            target_H = FRAME_HEIGHT
         # Resize first (smaller image → faster annotate)
-        frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
-
+        
+        frame = cv2.resize(frame, (target_W, target_H))
         if rects:
             # Scale bboxes to match resized frame
-            sx = FRAME_WIDTH / frame_w
-            sy = FRAME_HEIGHT / frame_h
+            sx = target_W / frame_w
+            sy = target_H / frame_h
             scaled = [
                 (tid, color, label, [int(x1 * sx), int(y1 * sy), int(x2 * sx), int(y2 * sy)], ds)
                 for tid, color, label, (x1, y1, x2, y2), ds in rects
@@ -792,12 +912,14 @@ class AttendanceService:
             (f"Valid Faces: {self.current_faces_valid}", 150),
             (f"Frame: {self.frame_count}", 180),
             (f"Detect Frame: {self.detect_frame_count}", 210),
+            (f"Check Detect: {len(self.check_detect)}", 240),
         ]
-        if self._source_type == "Video File" and self._video_begin_time is not None:
-            stats.append((f"Video Time: {self._current_actual_time}", 240))
+        # if self._source_type == "Video File" and self._video_begin_time is not None:
+        #     stats.append((f"Video Time: {self._current_actual_time}", 240))
         frame = annotate_frame(frame, [], stats)
-
-        self.streaming.enqueue(frame)
+    
+        if self.is_streaming:
+            self.streaming.enqueue(frame)
         return frame
 
     # ------------------------------------------------------------------

@@ -94,6 +94,9 @@ def _letterbox(img: np.ndarray) -> np.ndarray:
     resized = cv2.resize(img, (int(w * scale), int(h * scale)))
     canvas = np.full((DETECT_SIZE[1], DETECT_SIZE[0], 3), 128, dtype=np.uint8)
     canvas[oy : oy + resized.shape[0], ox : ox + resized.shape[1]] = resized
+    
+    cv2.imshow("frame_small", canvas)
+    cv2.waitKey(1)
     return canvas
 
 
@@ -116,21 +119,46 @@ def extract_embeddings_from_frame(frame: np.ndarray) -> list[np.ndarray]:
 
     bboxes, kpss = app.models["detection"].detect(small)
     embeddings: list[np.ndarray] = []
+    bboxes_4k: list[list[int]] = []
+    
+   
 
     if bboxes.shape[0] == 0:
-        return embeddings
-
+        return embeddings, bboxes_4k
+    
+     # tìm bbox có area lớn nhất (Khuôn mặt gần camera nhất)
+    max_area = 0
+    max_idx = -1
     for i in range(bboxes.shape[0]):
+        x1, y1, x2, y2, score = bboxes[i]
+        area = (x2 - x1) * (y2 - y1)
+        if area > max_area:
+            max_area = area
+            max_idx = i
+
+    if max_idx != -1:
         try:
-            kps_orig = _map_to_original(kpss[i], scale, ox, oy)
+            
+            x1_sm, y1_sm, x2_sm, y2_sm, score = bboxes[max_idx]
+            
+            # 2. Ánh xạ ngược về tọa độ 4K
+            # Công thức: (Tọa độ ảnh nhỏ - phần bù viền đen) / tỉ lệ scale
+            x1_4k = (x1_sm - ox) / scale
+            y1_4k = (y1_sm - oy) / scale
+            x2_4k = (x2_sm - ox) / scale
+            y2_4k = (y2_sm - oy) / scale
+            
+            bbox_4k = [int(x1_4k), int(y1_4k), int(x2_4k), int(y2_4k)]
+            bboxes_4k.append(bbox_4k)
+            kps_orig = _map_to_original(kpss[max_idx], scale, ox, oy)
             face_aimg = face_align.norm_crop(frame, kps_orig)
             feat = app.models["recognition"].get_feat(face_aimg)
             normed = feat / np.linalg.norm(feat)
             embeddings.append(normed.flatten())
         except Exception as e:
-            print(f"  [WARN] Không trích được khuôn mặt {i}: {e}")
+            print(f"  [WARN] Không trích được khuôn mặt {max_idx}: {e}")
 
-    return embeddings
+    return embeddings, bboxes_4k
 
 
 # ─────────────────────────────────────────────────────────────
@@ -138,7 +166,7 @@ def extract_embeddings_from_frame(frame: np.ndarray) -> list[np.ndarray]:
 # ─────────────────────────────────────────────────────────────
 
 def filter_unique_embeddings(
-    embeddings: list[np.ndarray], threshold: float = 0.8
+    embeddings: list[np.ndarray], threshold: float = 0.9
 ) -> np.ndarray:
     """Lọc các embedding trùng lặp dựa trên cosine similarity."""
     if not embeddings:
@@ -181,10 +209,13 @@ def extract_from_video(
             break
         count += 1
         start_time = time.time()
-        embs = extract_embeddings_from_frame(frame)
+        embs, bboxes = extract_embeddings_from_frame(frame)
         all_embeddings.extend(embs)
 
         if preview:
+            for bbox in bboxes:
+                x1, y1, x2, y2 = bbox
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             display = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
             info = f"Frame {count}/{total_frames}  |  Faces so far: {len(all_embeddings)}"
             cv2.putText(display, info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -338,8 +369,8 @@ def main() -> None:
     parser.add_argument(
         "--threshold", "-t",
         type=float,
-        default=0.7,
-        help="Ngưỡng cosine similarity để lọc embedding trùng (default: 0.7).",
+        default=0.8,
+        help="Ngưỡng cosine similarity để lọc embedding trùng (default: 0.8).",
     )
     parser.add_argument(
         "--preview", "-p",
@@ -398,20 +429,12 @@ def main() -> None:
         print("[WARN] Không trích xuất được embedding nào. Dừng.")
         return
 
-    # ── Merge với file .npy cũ (nếu có) ──────────────────────
+    # ── Tạo hoặc replace file .npy cũ (nếu có) ──────────────────────
     if os.path.exists(npy_path):
-        old = np.load(npy_path)
-        if old.ndim == 1:
-            old = old.reshape(1, -1)
-        print(f"  Merge với {len(old)} embeddings cũ từ {npy_path}")
-        combined = list(old) + embeddings
-        merged = filter_unique_embeddings(combined, args.threshold)
-        print(f"  Sau merge + lọc trùng: {len(merged)} embeddings")
-    else:
-        merged = np.array(embeddings)
+        os.remove(npy_path)
 
-    np.save(npy_path, merged)
-    print(f"[OK] Saved {len(merged)} embeddings → {npy_path}")
+    np.save(npy_path, embeddings)
+    print(f"[OK] Saved {len(embeddings)} embeddings → {npy_path}")
 
     # ── Rebuild index ─────────────────────────────────────────
     print()

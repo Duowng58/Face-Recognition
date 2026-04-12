@@ -18,7 +18,7 @@ from insightface.app import FaceAnalysis
 from insightface.utils import face_align
 import onnxruntime as ort
 
-from scripts.config import DETECT_SIZE
+from scripts.config import DETECT_SIZE, MIN_BBOX_AREA
 
 
 class RecognitionService:
@@ -32,11 +32,13 @@ class RecognitionService:
         embedding_dim: int = 512,
         tree: int = 50,
         sim_threshold: float = 0.45,
+        detect_size: tuple[int, int] = DETECT_SIZE
     ) -> None:
         self.face_data_dir = face_data_dir
         self.annoy_index_path = annoy_index_path
         self.mapping_path = mapping_path
         self.embedding_dim = embedding_dim
+        self.detect_size = detect_size
         self.tree = tree
         self.sim_threshold = sim_threshold
 
@@ -67,7 +69,7 @@ class RecognitionService:
             ],
             allowed_modules=["detection", "recognition"],
         )
-        self.face_app.prepare(ctx_id=0, det_thresh=0.5, det_size=DETECT_SIZE)
+        self.face_app.prepare(ctx_id=0, det_thresh=0.5, det_size=self.detect_size)
         
                 # 2. Đọc ảnh từ file
         img_path = "vlcsnap-2026-03-10-16h43m12s822.png" # Thay bằng đường dẫn ảnh của bạn
@@ -121,7 +123,7 @@ class RecognitionService:
         status_callback(message)
 
     def get_letterbox_params(self, orig_h, orig_w):
-        tw, th = DETECT_SIZE
+        tw, th = self.detect_size
         scale = min(tw / orig_w, th / orig_h)
         new_w, new_h = int(orig_w * scale), int(orig_h * scale)
         
@@ -135,7 +137,7 @@ class RecognitionService:
         scale, ox, oy = self.get_letterbox_params(h, w)
         
         resized = cv2.resize(img, (int(w * scale), int(h * scale)))
-        canvas = np.full((DETECT_SIZE[1], DETECT_SIZE[0], 3), 128, dtype=np.uint8) # Màu xám trung tính
+        canvas = np.full((self.detect_size[1], self.detect_size[0], 3), 128, dtype=np.uint8) # Màu xám trung tính
         canvas[oy:oy + resized.shape[0], ox:ox + resized.shape[1]] = resized
         
         return canvas
@@ -153,12 +155,13 @@ class RecognitionService:
     def get_embeddings(self, frame_4k):
         # Bước 1: Tạo ảnh nhỏ để Detect (giảm tải GPU)
         h_orig, w_orig = frame_4k.shape[:2]
-        input_size = DETECT_SIZE
+        # input_size = DETECT_SIZE
         frame_small = self.letterbox(frame_4k)
         scale, ox, oy = self.get_letterbox_params(h_orig, w_orig)
         # Tính tỉ lệ để map ngược lại ảnh 4K
         # sw, sh = input_size
         # rx, ry = w_orig / sw, h_orig / sh
+        
 
         # Bước 2: Chỉ thực hiện DETECT trên ảnh nhỏ
         # Chúng ta dùng app.models['detection'] trực tiếp để tránh chạy nhận diện toàn bộ ảnh nhỏ
@@ -175,6 +178,7 @@ class RecognitionService:
                     kps_4k = self.map_to_original(kpss[i], scale, ox, oy)
                     # print('3')
                     x1_sm, y1_sm, x2_sm, y2_sm, score = bboxes[i]
+                    
             
                     # 2. Ánh xạ ngược về tọa độ 4K
                     # Công thức: (Tọa độ ảnh nhỏ - phần bù viền đen) / tỉ lệ scale
@@ -182,6 +186,11 @@ class RecognitionService:
                     y1_4k = (y1_sm - oy) / scale
                     x2_4k = (x2_sm - ox) / scale
                     y2_4k = (y2_sm - oy) / scale
+                    
+                    area = (x2_4k - x1_4k) * (y2_4k - y1_4k)
+                    if area < MIN_BBOX_AREA:    
+                        # print(f"Detected face area: {area}")
+                        continue
                     
                     bbox_4k = [int(x1_4k), int(y1_4k), int(x2_4k), int(y2_4k)]
                     
@@ -193,6 +202,11 @@ class RecognitionService:
                     
                     # Bước 5: Trích xuất Embedding từ vùng ảnh nét nhất
                     feat = self.face_app.models['recognition'].get_feat(face_aimg)
+                    # window_name = f"face_aimg-{i}"
+                    # cv2.namedWindow(window_name)
+                    # cv2.moveWindow(window_name, 150 * i, 0)
+                    # cv2.imshow(window_name, face_aimg)
+                    # cv2.waitKey(1)
                     normed_embedding = (feat / np.linalg.norm(feat)).flatten()
                     # print('5')
                     results.append({
@@ -271,11 +285,16 @@ class RecognitionService:
             return "Unknown", 0.0
 
         sim = 1 - (dist[0] ** 2) / 2
-        name = self.idx2name.get(str(idx[0]), "Unknown")
+        # name = self.idx2name.get(str(idx[0]), "Unknown")
         # print(f"  [DEBUG] idx_list: {idx}, dist_list: {dist}, sim: {sim}, name: {name}")
         
+        name = self.idx2name.get(str(idx[0]), "Unknown")
         if sim >= self.sim_threshold:
-            return self.idx2name.get(str(idx[0]), "Unknown"), sim
+            # print(f"  [DEBUG] idx_list: {idx}, dist_list: {dist}, sim: {sim}, name: {name}")
+            return name, sim
+        # else:
+        #     print(f"  [DEBUG] idx_list: {idx}, dist_list: {dist}, sim: {sim}, name: {name}")
+        
         return "Unknown", sim
 
     # ------------------------------------------------------------------

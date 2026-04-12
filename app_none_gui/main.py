@@ -211,7 +211,7 @@ class ConnectionManager:
                     self.config.max_reconnect_attempts
                 )
                 
-                ok = self.svc.start_capture(self.config.source, self.config.source_type)
+                ok = self.svc.start_capture(self.config.source, self.config.source_type, self.config.stream)
                 if ok:
                     self.reconnect_attempts = 0  # Reset on success
                     log.info("✅ Connected successfully. FPS=%.1f", self.svc.frame_fps)
@@ -305,11 +305,13 @@ class FaceBuildWorker:
 
     def _tick(self) -> None:
         """One check cycle: query → extract → save → rebuild → update."""
+        self._log.info("FaceBuildWorker tick")
         client = MongoClientSingleton.get_client()
         students_col = client.collection("students")
         attendances_col = client.collection("attendances")
         need_rebuild = False
         
+        #region video_files
         # Find students that have a video but haven't been processed yet
         query = {
             "video_file": {"$nin": [None, ""]},
@@ -378,7 +380,102 @@ class FaceBuildWorker:
                 self._log.info("  Updated has_build_face=True for %s", student_name)
             except Exception:
                 self._log.exception("  Failed to update MongoDB for %s", student_name)
+        #endregion
+       
+        #region avatar_frames
+        # Find students that have avatar_frames but haven't been processed yet
+        query_avatar = {
+            "avatar_frames":  { "$exists": True, "$not": { "$size": 0 } },
+            "$or": [
+                {"has_build_face": False},
+                {"has_build_face": {"$exists": False}},
+            ],
+        }
+        pending_avatar = list(students_col.find(query_avatar))
+        if(len(pending_avatar)>0):
+            self._log.info("Found %d student(s) with avatar frames to build face index for.", len(pending_avatar))
+            
+        for doc in pending_avatar:
+            if self._stop.is_set():
+                break
 
+            student_id = doc["_id"]
+            student_name = doc.get("name", str(student_id))
+
+
+            video_frames_folder = os.path.join(
+                AVATAR_DIR,
+                str(student_id),
+                "frames",
+            )
+
+            self._log.info(
+                "Processing student %s (%s)  folder=%s",
+                student_name, student_id, video_frames_folder,
+            )
+
+            if not os.path.isdir(video_frames_folder):
+                self._log.warning("Frames folder not found: %s – skipping.", video_frames_folder)
+                # Still mark so we don't retry every cycle
+                try:
+                    students_col.update_one(
+                        {"_id": student_id},
+                        {"$set": {"has_build_face": True}},
+                    )
+                except Exception:
+                    self._log.exception("  Failed to update student %s", student_id)
+                continue
+
+            try:
+                embeddings = self._extract_from_folder(video_frames_folder)
+            except Exception:
+                self._log.exception("Failed to extract embeddings from %s", video_frames_folder)
+                continue
+
+            if not embeddings:
+                self._log.warning(
+                    "No embeddings extracted from %s – skipping.", video_frames_folder,
+                )
+                try:
+                    students_col.update_one(
+                        {"_id": student_id},
+                        {"$set": {"has_build_face": True}},
+                    )
+                except Exception:
+                    pass
+                continue
+
+            # De-duplicate within this folder
+            # unique = self._filter_unique(embeddings)
+            # self._log.info(
+            #     "  Raw=%d  Unique=%d embeddings", len(embeddings), len(unique),
+            # )
+
+            # Save / merge into {student_id}.npy
+            os.makedirs(FACE_DATA_DIR, exist_ok=True)
+            safe_name = str(student_id)
+            npy_path = os.path.join(FACE_DATA_DIR, f"{safe_name}.npy")
+
+            if os.path.exists(npy_path):
+                os.remove(npy_path)
+
+            np.save(npy_path, np.array(embeddings))
+            self._log.info("  Saved %d embeddings → %s", len(embeddings), npy_path)
+            need_rebuild = True
+
+            # Mark attendance as processed
+            try:
+                students_col.update_one(
+                    {"_id": student_id},
+                    {"$set": {"has_build_face": True}},
+                )
+                self._log.info("  Updated has_build_face=True for student %s", student_id)
+            except Exception:
+                self._log.exception("  Failed to update student %s", student_id)
+        #endregion
+            
+        #region attendances
+        
         # Tìm attendances đã check mà chưa build
         att_query = {
             "is_checked_image": True,
@@ -475,6 +572,7 @@ class FaceBuildWorker:
                 self._log.info("  Updated has_build_face=True for attendance %s", attendance_id)
             except Exception:
                 self._log.exception("  Failed to update attendance %s", attendance_id)
+        #endregion
 
         # Rebuild the Annoy index once after processing all students + attendances
         if need_rebuild and not self._stop.is_set():
@@ -520,9 +618,19 @@ class FaceBuildWorker:
 
                 if bboxes.shape[0] == 0:
                     continue
-
+                
+                # Find the bbox with the largest area (closest face to the camera)
+                max_area = 0
+                max_idx = -1
                 for i in range(bboxes.shape[0]):
-                    kps_orig = rec.map_to_original(kpss[i], scale, ox, oy)
+                    x1, y1, x2, y2, score = bboxes[i]
+                    area = (x2 - x1) * (y2 - y1)
+                    if area > max_area:
+                        max_area = area
+                        max_idx = i
+
+                if max_idx != -1:
+                    kps_orig = rec.map_to_original(kpss[max_idx], scale, ox, oy)
                     face_aimg = _face_align.norm_crop(frame, kps_orig)
                     feat = rec.face_app.models["recognition"].get_feat(face_aimg)
                     normed = feat / np.linalg.norm(feat)
@@ -542,6 +650,7 @@ class FaceBuildWorker:
         )
         return all_embs
 
+        
     def _extract_from_folder(self, folder: str) -> list[np.ndarray]:
         """Read all images in *folder* and extract face embeddings."""
         from insightface.utils import face_align as _face_align
@@ -601,7 +710,7 @@ class FaceBuildWorker:
 
     @staticmethod
     def _filter_unique(
-        embeddings: list[np.ndarray], threshold: float = 0.7,
+        embeddings: list[np.ndarray], threshold: float = 0.8,
     ) -> list[np.ndarray]:
         """Remove near-duplicate embeddings based on cosine similarity."""
         if not embeddings:
@@ -676,8 +785,8 @@ class MainLoop:
                     try:
                         cv2.imshow("Attendance (headless preview)", frame)
                         key = cv2.waitKey(1) & 0xFF
-                        if key == ord("q"):
-                            log.info("'q' pressed – stopping.")
+                        if key == ord("e"):
+                            log.info("'e' pressed – stopping.")
                             break
                     except Exception as e:
                         log.error("Preview error: %s", e)
@@ -687,14 +796,16 @@ class MainLoop:
                     time.sleep(0.01)
                 
                 # Pace to target FPS
-                elapsed = time.perf_counter() - t0
-                remaining = target_interval - elapsed
-                
-                if remaining > 0:
-                    time.sleep(remaining)
-                else:
-                    log.debug("⚠️ Frame processing exceeded target interval by %.2fms", 
-                             (elapsed - target_interval) * 1000)
+                # Kiểm tra source là video file thì check remaining để duy trì target FPS, còn webcam/rtsp thì cứ chạy nhanh nhất có thể
+                if self.config.source_type == "Video File":
+                    # Pace to target FPS
+                    elapsed = time.perf_counter() - t0
+                    remaining = target_interval - elapsed
+                    if remaining > 0:
+                        time.sleep(remaining)
+                    else:
+                        log.debug("⚠️ Frame processing exceeded target interval by %.2fms", 
+                                (elapsed - target_interval) * 1000)
                 
                 # Record frame time
                 total_time = time.perf_counter() - t0

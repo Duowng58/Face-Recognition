@@ -24,8 +24,8 @@ MAPPING_UNKNOWN_PATH = os.path.join(FACE_DATA_UNKNOWN_DIR, "image_paths_unknown.
 # ── recognition parameters ────────────────────────────────────
 MIN_BBOX_AREA = 1024
 EMBEDDING_DIM = 512
-TREE = 50
-SIM_THRESHOLD = 0.45
+TREE = 32
+SIM_THRESHOLD = 0.55
 
 # ── capture / storage ────────────────────────────────────────
 CAPTURE_ROOT = "captured_faces"
@@ -51,6 +51,7 @@ FONT_PATH = os.path.join(ROOT_DIR, "assets", "fonts", "Arial.ttf")
 FRAME_WIDTH = 1344
 FRAME_HEIGHT = 768
 
+# DETECT_SIZE = (800, 800)
 DETECT_SIZE = (640, 640)
 # DETECT_SIZE = (320,320)
 FACE_BUILD_TIME_EXCLUDE = [(0, 0, 7, 0), (13, 0, 14, 0)]  # Exclude face build time from 00:00-7:00 and 13:00-14:00
