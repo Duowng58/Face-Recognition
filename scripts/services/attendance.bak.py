@@ -530,14 +530,14 @@ class AttendanceService:
                 frame_count = self.frame_count
 
             if last_frame_count == frame_count:
-                time.sleep(0.01)  # Sleep briefly to avoid busy-waiting
+                time.sleep(1 / self._frame_fps)
                 # print("[DETECT] Frame not updated")
                 continue
             last_frame_count = frame_count
 
-            self.detect_frame_count +=1
-            if self.detect_frame_count > 1000:
-                self.detect_frame_count = 0
+            self.detect_frame_count = last_frame_count
+            # if self.detect_frame_count > 1000:
+            #     self.detect_frame_count = 0
 
             # ── face detection ──
             try:
@@ -714,16 +714,13 @@ class AttendanceService:
             #     rects2.append((track_id, color, tracker["name"], [x1, y1, x2, y2], detect_score))
 
             self._latest_faces = rects2, frame_copy
-            # # Kiểm tra source có phải video file không để điều chỉnh tốc độ detect
-            # if self._source_type == "Video File":
-            #     target_fps = (1 / self.frame_fps)
-            #     if self.current_detect_time < target_fps:
-            #         time_to_sleep = target_fps - self.current_detect_time
-            #         # print(f"Sleeping for {time_to_sleep:.2f} seconds to maintain target FPS")
-            #         time.sleep(time_to_sleep)
-            # else:
-            #     # For non-video file sources, sleep briefly to avoid busy-waiting
-            #     time.sleep(0.01)
+            # Kiểm tra source có phải video file không để điều chỉnh tốc độ detect
+            if self._source_type == "Video File":
+                target_fps = (1 / self.frame_fps) * 2
+                if self.current_detect_time < target_fps:
+                    time_to_sleep = target_fps - self.current_detect_time
+                    # print(f"Sleeping for {time_to_sleep:.2f} seconds to maintain target FPS")
+                    time.sleep(time_to_sleep)
 
     # ------------------------------------------------------------------
     # Tracker disappeared → attendance logic

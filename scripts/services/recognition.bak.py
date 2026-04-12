@@ -7,9 +7,7 @@ Wraps InsightFace + Annoy for face detection, recognition, and mask detection.
 from __future__ import annotations
 
 import json
-import logging
 import os
-import sys
 import threading
 from typing import Callable, Optional, Tuple
 
@@ -21,9 +19,6 @@ from insightface.utils import face_align
 import onnxruntime as ort
 
 from scripts.config import DETECT_SIZE, MIN_BBOX_AREA
-
-
-log = logging.getLogger(__name__)
 
 
 class RecognitionService:
@@ -50,9 +45,6 @@ class RecognitionService:
         self.face_app: Optional[FaceAnalysis] = None
         self.annoy_index: Optional[AnnoyIndex] = None
         self.idx2name: dict[str, str] = {}
-        self.embedding_matrix: Optional[np.ndarray] = None
-        self.embedding_names: list[str] = []
-        self._annoy_enabled = self._should_use_annoy()
 
         self.mask_session = ort.InferenceSession(
             "models/mask_detector.onnx",
@@ -72,67 +64,34 @@ class RecognitionService:
             name="buffalo_s",
             root="./my_models",
             providers=[
-		"CoreMLExecutionProvider",
-                # ("TensorrtExecutionProvider", trt_options),
+                ("TensorrtExecutionProvider", trt_options),
                 "CUDAExecutionProvider",
             ],
             allowed_modules=["detection", "recognition"],
         )
         self.face_app.prepare(ctx_id=0, det_thresh=0.5, det_size=self.detect_size)
-
-    @staticmethod
-    def _should_use_annoy() -> bool:
-        if os.environ.get("FORCE_ANNOY_RECOGNITION") == "1":
-            return True
-        return not (sys.platform == "darwin" and sys.version_info >= (3, 14))
-
-    def _iter_face_vectors(self):
-        for file_name in sorted(os.listdir(self.face_data_dir)):
-            if not file_name.endswith(".npy"):
-                continue
-
-            name = file_name.replace(".npy", "")
-            data = np.load(os.path.join(self.face_data_dir, file_name), allow_pickle=False)
-
-            if data.dtype == object:
-                data = np.array(list(data), dtype=np.float32)
-
-            if data.ndim == 1:
-                data = data.reshape(1, -1)
-
-            for index, vector in enumerate(data):
-                vector = np.asarray(vector, dtype=np.float32).reshape(-1)
-                if vector.size != self.embedding_dim:
-                    log.warning(
-                        "Skipping invalid vector in %s at index %d (size=%d)",
-                        file_name,
-                        index,
-                        vector.size,
-                    )
-                    continue
-
-                norm = float(np.linalg.norm(vector))
-                if not np.isfinite(norm) or norm == 0.0:
-                    log.warning(
-                        "Skipping zero/invalid vector in %s at index %d",
-                        file_name,
-                        index,
-                    )
-                    continue
-
-                yield name, vector / norm
-
-    def _load_numpy_index(self) -> int:
-        names: list[str] = []
-        vectors: list[np.ndarray] = []
-
-        for name, vector in self._iter_face_vectors():
-            names.append(name)
-            vectors.append(vector)
-
-        self.embedding_names = names
-        self.embedding_matrix = np.vstack(vectors).astype(np.float32) if vectors else None
-        return len(names)
+        
+                # 2. Đọc ảnh từ file
+        img_path = "vlcsnap-2026-03-10-16h43m12s822.png" # Thay bằng đường dẫn ảnh của bạn
+        img = cv2.imread(img_path)
+        if img is None:
+            print("❌ Không tìm thấy file ảnh!")
+        else:
+            print(f"📸 Đang test ảnh: {img_path}, Size: {img.shape}, Type: {img.dtype}")
+            
+            # KHÔNG dùng .astype(float16) ở đây vì OpenCV sẽ lỗi resize
+            try:
+                # InsightFace sẽ tự xử lý chuyển màu BGR -> RGB và resize nội bộ
+                faces = self.face_app.get(img)
+                
+                print(f"✅ Thành công! Tìm thấy: {len(faces)} khuôn mặt.")
+                for i, face in enumerate(faces):
+                    print(f"  - Mặt {i+1}: Box {face.bbox.astype(int)}, Prob: {face.det_score:.2f}")
+                    if face.embedding is not None:
+                        print(f"    Vector Embedding: {face.embedding.shape}")
+                        
+            except Exception as e:
+                print(f"❌ Lỗi: {e}")
 
     # ------------------------------------------------------------------
     # Loading
@@ -146,36 +105,19 @@ class RecognitionService:
         ).start()
 
     def _init_recognition(self, status_callback: Callable[[str], None]) -> None:
-        loaded_vectors = self._load_numpy_index()
 
-        if self._annoy_enabled and os.path.exists(self.annoy_index_path) and os.path.exists(self.mapping_path):
-            try:
-                self.annoy_index = AnnoyIndex(self.embedding_dim, "angular")
-                self.annoy_index.load(self.annoy_index_path, prefault=True)
-                with open(self.mapping_path, "r", encoding="utf-8") as f:
-                    self.idx2name = json.load(f)
-            except Exception:
-                log.exception("Failed to load Annoy index, falling back to NumPy search")
-                self.annoy_index = None
-                self.idx2name = {}
+
+        if os.path.exists(self.annoy_index_path) and os.path.exists(self.mapping_path):
+            self.annoy_index = AnnoyIndex(self.embedding_dim, "angular")
+            self.annoy_index.load(self.annoy_index_path)
+            with open(self.mapping_path, "r", encoding="utf-8") as f:
+                self.idx2name = json.load(f)
+            unique_faces = set(self.idx2name.values())
+            message = f"Thông báo: Đã tải {len(unique_faces)} khuôn mặt đã biết."
         else:
             self.annoy_index = None
             self.idx2name = {}
-
-        if loaded_vectors:
-            unique_faces = set(self.embedding_names)
-            backend = "Annoy" if self.annoy_index is not None else "NumPy"
-            message = f"Thông báo: Đã tải {len(unique_faces)} khuôn mặt đã biết ({backend})."
-        else:
             message = "Thông báo: Chưa có dữ liệu khuôn mặt."
-
-        if not self._annoy_enabled:
-            log.warning(
-                "Annoy lookups disabled on %s Python %s.%s; using NumPy search to avoid native crashes",
-                sys.platform,
-                sys.version_info.major,
-                sys.version_info.minor,
-            )
 
         print(message)
         status_callback(message)
@@ -285,32 +227,41 @@ class RecognitionService:
 
     def build_face(self, on_complete: Optional[Callable[[str], None]] = None) -> None:
         """Rebuild the Annoy index from *.npy files, then reload assets."""
-        vectors = list(self._iter_face_vectors())
-        if not vectors:
-            self.embedding_matrix = None
-            self.embedding_names = []
+        files = [f for f in os.listdir(self.face_data_dir) if f.endswith(".npy")]
+        if not files:
             return
 
-        ann = AnnoyIndex(self.embedding_dim, "angular") if self._annoy_enabled else None
+        ann = AnnoyIndex(self.embedding_dim, "angular")
         idx2name: dict[int, str] = {}
         idx = 0
 
-        self.embedding_names = []
-        self.embedding_matrix = np.vstack([vector for _, vector in vectors]).astype(np.float32)
+        for file_name in files:
+            name = file_name.replace(".npy", "")
+            data = np.load(os.path.join(self.face_data_dir, file_name))
 
-        for name, vector in vectors:
-            self.embedding_names.append(name)
-            if ann is not None:
+            if data.dtype == object:
+                data = np.array(list(data))
+
+            if data.ndim == 1:
+                data = data.reshape(1, -1)
+
+            num_vectors = data.shape[0]
+            for i in range(num_vectors):
+                vector = data[i]
+                if vector is None or len(vector) != self.embedding_dim:
+                    print(
+                        f"Bỏ qua vector lỗi tại file {file_name}, index {i} "
+                        f"(Length: {len(vector) if vector is not None else 0})"
+                    )
+                    continue
                 ann.add_item(idx, vector)
                 idx2name[idx] = name
-            idx += 1
+                idx += 1
 
-        if ann is not None:
-            ann.build(self.tree)
+        ann.build(self.tree)
         if self.annoy_index is not None:
             self.annoy_index.unload()
-        if ann is not None:
-            ann.save(self.annoy_index_path)
+        ann.save(self.annoy_index_path)
 
         with open(self.mapping_path, "w", encoding="utf-8") as f:
             json.dump(idx2name, f, ensure_ascii=False, indent=2)
@@ -324,30 +275,11 @@ class RecognitionService:
 
     def recognize(self, embedding: np.ndarray) -> Tuple[str, float]:
         """Return (name, similarity) for a single embedding."""
-        query = np.asarray(embedding, dtype=np.float32).reshape(-1)
-        if query.size != self.embedding_dim:
-            return "Unknown", 0.0
-
-        norm = float(np.linalg.norm(query))
-        if not np.isfinite(norm) or norm == 0.0:
-            return "Unknown", 0.0
-
-        query = query / norm
-
-        if self.embedding_matrix is not None and len(self.embedding_names) > 0:
-            similarities = self.embedding_matrix @ query
-            best_idx = int(np.argmax(similarities))
-            sim = float(similarities[best_idx])
-            name = self.embedding_names[best_idx]
-            if sim >= self.sim_threshold:
-                return name, sim
-            return "Unknown", sim
-
         if self.annoy_index is None or self.annoy_index.get_n_items() == 0:
             return "Unknown", 0.0
 
         idx, dist = self.annoy_index.get_nns_by_vector(
-            query, 1, include_distances=True
+            embedding, 1, include_distances=True
         )
         if not dist:
             return "Unknown", 0.0

@@ -80,7 +80,7 @@ def draw_corner_bbox(img, bbox, labels, track_id=None, thickness=2, ratio=0.2):
 
     # 4. Hiển thị tên với bóng chữ trắng
     if is_known:
-        text = str(name + f" - {detect_score:.2f}")
+        text = str(f" - {detect_score:.2f}")
         if track_id is not None:
             text = f"{track_id} - {text}"
         # Vẽ bóng chữ trắng phía dưới

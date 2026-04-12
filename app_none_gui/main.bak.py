@@ -23,7 +23,6 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from turtle import st
 from typing import Optional
 
 import cv2
@@ -155,7 +154,7 @@ class PerformanceMonitor:
         self.frame_times = []
         self.build_times = []
         self.last_report_time = time.time()
-        self.report_interval = 30.0  # Report every 30 seconds
+        self.report_interval = 300.0  # Report every 5 minutes
         
     def record_frame_time(self, elapsed: float) -> None:
         """Record frame processing time"""
@@ -173,7 +172,7 @@ class PerformanceMonitor:
         """Check if it's time to report stats"""
         return time.time() - self.last_report_time >= self.report_interval
     
-    def report(self, source) -> None:
+    def report(self) -> None:
         """Log performance statistics"""
         if not self.frame_times:
             return
@@ -183,8 +182,8 @@ class PerformanceMonitor:
         fps = 1.0 / avg_frame_time if avg_frame_time > 0 else 0
         
         log.info(
-            "PERF: SOURCE=%s FPS=%.1f (avg frame time: %.2fms, build time: %.2fms)",
-            source, fps, avg_frame_time * 1000, avg_build_time * 1000
+            "PERF: FPS=%.1f (avg frame time: %.2fms, build time: %.2fms)",
+            fps, avg_frame_time * 1000, avg_build_time * 1000
         )
         self.last_report_time = time.time()
 
@@ -575,39 +574,6 @@ class FaceBuildWorker:
                 self._log.exception("  Failed to update attendance %s", attendance_id)
         #endregion
 
-
-        #region remove student
-        query_std = {
-            "has_deleted": True
-        }
-        list_students_to_delete = students_col.find(query_std)
-        for student in list_students_to_delete:
-            try:
-                need_rebuild = True
-                # Xoá file .npy tương ứng với sinh viên
-                npy_path = os.path.join(FACE_DATA_DIR, f"{student['_id']}.npy")
-                if os.path.exists(npy_path):
-                    os.remove(npy_path)
-                # Xoá video, image frames 
-                video_file = student.get("video_file", "")
-                video_path = os.path.join(CAPTURE_ROOT, video_file)
-                if os.path.exists(video_path):
-                    os.remove(video_path)
-                video_frames_folder = os.path.join(
-                    AVATAR_DIR,
-                    str(student["_id"]),
-                    "frames",
-                )
-                if os.path.exists(video_frames_folder):
-                    for file in os.listdir(video_frames_folder):
-                        os.remove(os.path.join(video_frames_folder, file))
-                    os.rmdir(video_frames_folder)
-                students_col.delete_one({"_id": student["_id"]})
-                self._log.info("  Deleted student %s, name=%s", student["_id"], student.get("name", "N/A"))
-            except Exception as e:
-                self._log.exception("  Failed to delete student %s", student["_id"], exc_info=e)
-                
-        #endregion
         # Rebuild the Annoy index once after processing all students + attendances
         if need_rebuild and not self._stop.is_set():
             self._log.info("Rebuilding Annoy index...")
@@ -744,7 +710,7 @@ class FaceBuildWorker:
 
     @staticmethod
     def _filter_unique(
-        embeddings: list[np.ndarray], threshold: float = 0.9,
+        embeddings: list[np.ndarray], threshold: float = 0.8,
     ) -> list[np.ndarray]:
         """Remove near-duplicate embeddings based on cosine similarity."""
         if not embeddings:
@@ -829,26 +795,25 @@ class MainLoop:
                     # ✅ Sleep without preview to avoid busy-waiting
                     time.sleep(0.01)
                 
-                elapsed = time.perf_counter() - t0
-                # log.info(f"elapsed: {elapsed * 1000:.2f}ms, target: {target_interval * 1000:.2f}ms")
+                # Pace to target FPS
                 # Kiểm tra source là video file thì check remaining để duy trì target FPS, còn webcam/rtsp thì cứ chạy nhanh nhất có thể
                 if self.config.source_type == "Video File":
                     # Pace to target FPS
+                    elapsed = time.perf_counter() - t0
                     remaining = target_interval - elapsed
-                    
                     if remaining > 0:
-                        # log.info("Sleeping for %.2fms to maintain target FPS %.1f, elapsed: %.2fms, target: %.2fms", remaining * 1000, self.config.target_fps, elapsed * 1000, target_interval * 1000)
-                        time.sleep(remaining/2)  # Sleep half of the remaining time to be more responsive to stop events
+                        time.sleep(remaining)
                     else:
                         log.debug("⚠️ Frame processing exceeded target interval by %.2fms", 
                                 (elapsed - target_interval) * 1000)
+                
                 # Record frame time
                 total_time = time.perf_counter() - t0
                 self.monitor.record_frame_time(total_time)
-                # log.info("Frame processed in %.2fms (build: %.2fms)", total_time * 1000, self.monitor.build_times[-1] * 1000 if self.monitor.build_times else 0)
+                
                 # Report performance periodically
                 if self.monitor.should_report():
-                    self.monitor.report(self.config.source_type)
+                    self.monitor.report()
                     
             except Exception as e:
                 log.exception("Error in main loop iteration")

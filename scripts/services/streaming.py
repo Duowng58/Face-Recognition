@@ -83,6 +83,7 @@ class StreamingService:
                 # Lấy frame mới nhất từ hàng đợi
                 frame = self._queue.get(timeout=1.0)
             except queue.Empty:
+                time.sleep(1)
                 continue
 
             if not self._is_process_running():
@@ -99,6 +100,7 @@ class StreamingService:
             except (BrokenPipeError, IOError):
                 self._kill_process()
             except Exception as e:
+                time.sleep(1)
                 print(f"[STREAM] Write error: {e}")
         
         self._kill_process()
